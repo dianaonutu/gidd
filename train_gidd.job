@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --job_name=gidd_train
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --gpus-per-node=4
+#SBATCH --partition=gpu_h100
+#SBATCH --time=2:00:00
+#SBATCH --output=slurm_logs/%x-%j.out
+
+# Activate environment
+module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12.6.0
+source .venv/bin/activate
+
+# Launch training
+torchrun --nnodes=1 --nproc_per_node=4 gidd/train.py --config-name=gidd logging.run_name="'small-gidd+-fw-pu=0.0'"
