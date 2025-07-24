@@ -1,15 +1,50 @@
 #!/bin/bash
-#SBATCH --job_name=gidd_train
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --gpus-per-node=4
+#SBATCH --job-name=gidd_train
 #SBATCH --partition=gpu_h100
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
+#SBATCH --cpus-per-task=18
+#SBATCH --gpus-per-node=4
 #SBATCH --output=slurm_logs/%x-%j.out
 
+set -e  # Exit immediately on error
+# ============================================================================
+# SOFTWARE
+# ============================================================================
 # Activate environment
+module purge
 module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12.6.0
-source .venv/bin/activate
+export VENV_PATH=".venv"
+source $VENV_PATH/bin/activate
+
+# ============================================================================
+# DISTRIBUTED
+# ============================================================================
+echo "Allocated nodes:"
+scontrol show hostnames $SLURM_JOB_NODELIST
+
+export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+export MASTER_PORT=39591
+
+export NNODES=$SLURM_NNODES
+export GPUS_PER_NODE=${SLURM_GPUS_PER_NODE}
+
+echo "MASTER_ADDR: $MASTER_ADDR"
+echo "Running on node: $(hostname)"
+
+DISTRIBUTED_ARGS=(
+    --nproc-per-node $SLURM_GPUS_PER_NODE 
+    --nnodes $SLURM_NNODES
+)
 
 # Launch training
-torchrun --nnodes=1 --nproc_per_node=4 gidd/train.py --config-name=gidd logging.run_name="'small-gidd+-fw-pu=0.0'"
+srun torchrun "${DISTRIBUTED_ARGS[@]}" \
+    --rdzv_id=$SLURM_JOBID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    gidd/train.py \
+    --config-name=gidd \
+    logging.run_name="'small-gidd+-fw-pu=0.0'"
