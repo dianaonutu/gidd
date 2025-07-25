@@ -1,27 +1,27 @@
 # Updated Configs
 
-- `cd gidd/configs/data/defaults`:  
+- `gidd/configs/data/defaults.yaml`:  
   - `cache_dir`  
   - `tokenizer` name (set to path instead of downloading)
   
-- `cd gidd/configs/data/fineweb`:  
+- `gidd/configs/data/fineweb.yaml`:  
   - `dataset_name`
   
-- `cd gidd/configs/logging/default`:  
+- `gidd/configs/logging/default.yaml`:  
   - `wandb_entity`  
   - `wandb_project`
   
-- `cd gidd/configs/gidd`:  
+- `gidd/configs/gidd.yaml`:  
   - `data`  
   - `model`  
   - `num_train_steps`
   
-- `cd gidd/configs/mdlm`:  
+- `gidd/configs/mdlm.yaml`:  
   - `data`  
   - `model`  
   - `num_train_steps`
   
-- `pretrain_job_script`:  
+- `pretrain_job_script.job`:  
   - `nnodes`  
   - `ngpus`  
   - `time`  
