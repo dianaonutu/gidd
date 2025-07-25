@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=gidd_train
+#SBATCH --job-name=gidd_train_snellius
 #SBATCH --partition=gpu_h100
 #SBATCH --time=3:00:00
 #SBATCH --nodes=4
@@ -10,7 +10,7 @@
 
 
 # Usage:
-#     sbatch pretrain_gidd.job
+#     sbatch pretrain_gidd_snellius.job
 #
 
 set -e  # Exit immediately on error
@@ -52,4 +52,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=gidd \
-    logging.run_name="'small-gidd+-fw-pu=0.0'"
+    logging.run_name="'small-gidd-fineweb-pu=0.0-xgpu-xnode-snls'"
