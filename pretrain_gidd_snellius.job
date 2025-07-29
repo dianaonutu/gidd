@@ -52,4 +52,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=gidd \
-    logging.run_name="'small-gidd-fineweb-pu=0.0-xgpu-xnode-snls'"
+    logging.run_name="'small-gidd-fineweb-pu=0.0-xgpu-xnode-snls-xbs'"
