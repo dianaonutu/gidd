@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=gidd_train_leonardo
 #SBATCH --partition=boost_usr_prod
-#SBATCH --time=3:00:00
-#SBATCH --nodes=4
+#SBATCH --time=2:00:00
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
-#SBATCH --cpus-per-task=16
-#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=32
+#SBATCH --gpus-per-node=1
 #SBATCH --output=slurm_logs/%x-%j.out
 
 
@@ -44,12 +44,9 @@ DISTRIBUTED_ARGS=(
     --nnodes $SLURM_NNODES
 )
 
-export WDIR="/leonardo_work/AIFAC_L01_028/donutu/gidd"
-
 
 # Offline wandb logging
 export WANDB_MODE=offline
-
 
 # Launch training
 srun torchrun "${DISTRIBUTED_ARGS[@]}" \
@@ -60,4 +57,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=gidd \
-    logging.run_name="'small-gidd-fineweb-pu=0.0-xgpu-xnode-lrdn'"
+    logging.run_name="'small-gidd-fineweb-pu=0.0-4gpu-1node-lrdn-xbs'"\
