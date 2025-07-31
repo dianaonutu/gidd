@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --account=aifac_l01_028
 #SBATCH --job-name=gidd_train_leonardo
 #SBATCH --partition=boost_usr_prod
 #SBATCH --time=3:00:00
@@ -24,6 +25,9 @@ module load nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
 export VENV_PATH=".venv"
 source $VENV_PATH/bin/activate
 
+echo "Job submission date: $SLURM_JOB_SUBMIT"
+echo "Job started at: $(date)"
+
 # ============================================================================
 # DISTRIBUTED
 # ============================================================================
@@ -48,7 +52,7 @@ DISTRIBUTED_ARGS=(
 )
 
 # Check if the nodes establish connection
-export NCCL_DEBUG=INFO
+# export NCCL_DEBUG=INFO
 
 # Offline wandb logging
 export WANDB_MODE=offline

@@ -23,6 +23,9 @@ module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12
 export VENV_PATH=".venv"
 source $VENV_PATH/bin/activate
 
+echo "Job submission date: $SLURM_JOB_SUBMIT"
+echo "Job started at: $(date)"
+
 # ============================================================================
 # DISTRIBUTED
 # ============================================================================
