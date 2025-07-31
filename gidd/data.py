@@ -23,6 +23,7 @@ def get_dataset(config, num_proc=32):
         split=f"train[:-{test_size}]",
         trust_remote_code=config.data.trust_remote_code,
         num_proc=n_proc,
+        cache_dir=config.data.cache_dir,
     )
     test_ds = load_dataset(
         config.data.dataset_name,
@@ -30,6 +31,7 @@ def get_dataset(config, num_proc=32):
         split=f"train[-{test_size}:]",
         trust_remote_code=config.data.trust_remote_code,
         num_proc=n_proc,
+        cache_dir=config.data.cache_dir,
     )
 
     return train_ds, test_ds
