@@ -78,13 +78,14 @@ class GiddSampler(Sampler):
 
     def _do_generate(self, num_samples, num_denoising_steps, max_length, show_progress=False, device=None):
 
-        ts = torch.linspace(0, 1, num_denoising_steps + 1, device=device).unsqueeze(-1)
-        ts = (1 - 2 * self.t_eps) * ts + self.t_eps
+        
+        ts = torch.linspace(0, 1, num_denoising_steps + 1, device=device).unsqueeze(-1) # Sample time steps ts 
+        ts = (1 - 2 * self.t_eps) * ts + self.t_eps # Rescales and shifts ts to avoid numerical issues: (e, 1-e) instead of (0, 1)
 
         # zt = sample_categorical(p_zt)
         z_t = self.noise_schedule.sample_prior((num_samples, max_length)).to(device, non_blocking=True)
         for i in tqdm.trange(num_denoising_steps - 1, -1, -1, desc="Generating samples", disable=not show_progress, dynamic_ncols=True):
-            z_t = self.sampling_step(z_t, ts[i], ts[max(0, i-1)]).clone()
+            z_t = self.sampling_step(z_t, ts[i], ts[max(0, i-1)]).clone() # inputs: z_t, t, s
         return z_t
 
 
