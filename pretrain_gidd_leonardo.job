@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=gidd_train_leonardo
 #SBATCH --partition=boost_usr_prod
-#SBATCH --time=2:00:00
-#SBATCH --nodes=1
+#SBATCH --time=3:00:00
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --cpus-per-task=32
-#SBATCH --gpus-per-node=1
+#SBATCH --gpus-per-node=4
 #SBATCH --output=slurm_logs/%x-%j.out
 
 
@@ -30,6 +30,9 @@ source $VENV_PATH/bin/activate
 echo "Allocated nodes:"
 scontrol show hostnames $SLURM_JOB_NODELIST
 
+NODE_COUNT=$(scontrol show hostnames $SLURM_JOB_NODELIST | wc -l)
+echo "Number of nodes allocated: $NODE_COUNT"
+
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=39591
 
@@ -44,6 +47,8 @@ DISTRIBUTED_ARGS=(
     --nnodes $SLURM_NNODES
 )
 
+# Check if the nodes establish connection
+export NCCL_DEBUG=INFO
 
 # Offline wandb logging
 export WANDB_MODE=offline
@@ -57,4 +62,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=gidd \
-    logging.run_name="'small-gidd-fineweb-pu=0.0-4gpu-1node-lrdn-xbs'"\
+    logging.run_name="'small-gidd-fineweb-pu=0.0-64gpu-16node-lrdn-64bs'"\

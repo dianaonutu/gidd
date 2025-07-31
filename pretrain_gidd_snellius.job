@@ -29,6 +29,9 @@ source $VENV_PATH/bin/activate
 echo "Allocated nodes:"
 scontrol show hostnames $SLURM_JOB_NODELIST
 
+NODE_COUNT=$(scontrol show hostnames $SLURM_JOB_NODELIST | wc -l)
+echo "Number of nodes allocated: $NODE_COUNT"
+
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=39591
 
