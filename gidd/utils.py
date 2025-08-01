@@ -2,6 +2,7 @@ import re
 import math
 
 import torch
+import torch._dynamo
 
 
 def parse_dtype(dtype):
@@ -34,6 +35,7 @@ def get_lr(config, lr, step):
 
 
 @torch.no_grad()
+@torch._dynamo.disable   # disables TorchDynamo just for this function
 def sample_categorical(probs, generator=None):
     # return torch.distributions.Categorical(probs=probs).sample()
     uniform = torch.rand(probs.shape[:-1], dtype=probs.dtype, device=probs.device, generator=generator).unsqueeze(-1)
