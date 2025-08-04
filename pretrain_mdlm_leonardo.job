@@ -65,5 +65,5 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     gidd/train.py \
-    --config-name=gidd \
-    logging.run_name="'small-gidd-fineweb-pu=0.0-16gpu-4node-lrdn-64bs'"\
+    --config-name=mdlm \
+    logging.run_name="'small-mdlm-fineweb-16gpu-4node-lrdn-xbs'"\
