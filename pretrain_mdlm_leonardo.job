@@ -11,7 +11,7 @@
 
 
 # Usage:
-#     sbatch pretrain_gidd_leonardo.job
+#     sbatch pretrain_mdlm_leonardo.job
 #
 
 set -e  # Exit immediately on error
