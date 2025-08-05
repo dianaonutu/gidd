@@ -277,7 +277,13 @@ def main(config):
                     eval_metrics = {}
                     eval_loss = 0
                     num_eval_samples = 0
-                    for i, test_batch in enumerate(tqdm.tqdm(test_dl, desc="Eval", dynamic_ncols=True, total=len(test_dl), disable=not is_main_process)):
+
+                    if len(test_dl) <config.logging.num_eval_batches:
+                        total_eval_batches = len(test_dl)
+                    else:
+                        total_eval_batches = config.logging.num_eval_batches
+                        
+                    for i, test_batch in enumerate(tqdm.tqdm(test_dl, desc="Eval", dynamic_ncols=True, total=total_eval_batches, disable=not is_main_process)):
                         bs = test_batch["input_ids"].size(0)
 
                         test_batch = {k: v.to(device, non_blocking=True) for k, v in test_batch.items()}
