@@ -216,6 +216,6 @@ def get_dataloaders(config, tokenizer, train_batch_size=None, eval_batch_size=No
         collate_fn = functools.partial(subsample_collator, config, tokenizer, text_key="text")
 
     train_dl = _get_dataloader(config, train_ds, shuffle=True, drop_last=True, batch_size=train_batch_size, collate_fn=collate_fn)
-    test_dl = _get_dataloader(config, test_ds, shuffle=False, drop_last=False, batch_size=eval_batch_size, collate_fn=collate_fn)
+    test_dl = _get_dataloader(config, test_ds, shuffle=False, drop_last=True, batch_size=eval_batch_size, collate_fn=collate_fn)
 
     return train_dl, test_dl
