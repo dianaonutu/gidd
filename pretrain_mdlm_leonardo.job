@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=aifac_l01_028
-#SBATCH --job-name=gidd_train_leonardo
+#SBATCH --job-name=mdlm_train_leonardo
 #SBATCH --partition=boost_usr_prod
 #SBATCH --time=1:00:00
 #SBATCH --nodes=4
@@ -25,7 +25,6 @@ module load nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
 export VENV_PATH=".venv"
 source $VENV_PATH/bin/activate
 
-echo "Job submission date: $SLURM_JOB_SUBMIT"
 echo "Job started at: $(date)"
 
 # ============================================================================
@@ -66,4 +65,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=mdlm \
-    logging.run_name="'small-mdlm-fineweb-16gpu-4node-lrdn-xbs'"\
+    logging.run_name="'1B-mdlm-fineweb-16gpu-4node-lrdn-a100-8mbs'"\

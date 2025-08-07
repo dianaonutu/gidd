@@ -25,7 +25,6 @@ module load nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
 export VENV_PATH=".venv"
 source $VENV_PATH/bin/activate
 
-echo "Job submission date: $SLURM_JOB_SUBMIT"
 echo "Job started at: $(date)"
 
 # ============================================================================
@@ -66,4 +65,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=gidd \
-    logging.run_name="'small-gidd-fineweb-pu=0.0-16gpu-4node-lrdn-64bs'"\
+    logging.run_name="'1B-gidd-fineweb-pu=0.0-16gpu-4node-lrdn-a100-8mbs'"\
