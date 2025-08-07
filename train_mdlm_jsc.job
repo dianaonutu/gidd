@@ -1,0 +1,62 @@
+#!/bin/bash
+#SBATCH --job-name=small-mdlm-fineweb-4gpu-1node-jsc-a100-64bs
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=32
+#SBATCH --time=01:00:00
+#SBATCH --account=laionize
+#SBATCH --partition=develbooster
+#SBATCH --output=/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.out
+#SBATCH --error=/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.err
+
+# For quick tests on max 4 nodes, max 2h walltime and internet connection: #SBATCH --partition=develbooster
+# For more nodes and time: set #SBATCH --partition=booster
+
+set -e  # Exit immediately on error
+
+# Activate environment
+module purge
+module load Stages/2025  GCCcore/.13.3.0 Python/3.12.3 NCCL/default-CUDA-12
+export VENV_PATH=".venv"
+source $VENV_PATH/bin/activate
+
+# Distributed training
+export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+# Allow communication over InfiniBand cells.
+# adding “i” to hostname is crucial, otherwise compute nodes will not be able to communicate
+export MASTER_ADDR="${MASTER_ADDR}i"
+
+# STILL A NECESSARY WORKAROUND TO MAKE ALL GPUs on the nodes visible
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+# Print in job file
+echo "Job submission date: $SLURM_JOB_SUBMIT"
+
+NODE_COUNT=$(scontrol show hostnames $SLURM_JOB_NODELIST | wc -l)
+echo "Number of nodes allocated: $NODE_COUNT"
+
+echo "MASTER_ADDR: $MASTER_ADDR"
+echo "Running on node: $(hostname)"
+
+DISTRIBUTED_ARGS=(
+    --nproc-per-node $SLURM_GPUS_PER_NODE 
+    --nnodes $SLURM_NNODES
+)
+
+export WDIR="/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/gidd/gidd_mdlm_logs"
+
+# to run wandb in offline mode
+export WANDB_MODE=offline
+
+# Launch training
+srun torchrun "${DISTRIBUTED_ARGS[@]}" \
+  --rdzv_id=$SLURM_JOBID \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
+  gidd/train.py \
+    --config-name=mdlm \
+    logging.run_name="$SLURM_JOB_NAME" \
+    hydra.job.name="$SLURM_JOB_NAME"
