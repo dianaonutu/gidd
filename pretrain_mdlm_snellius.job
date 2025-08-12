@@ -39,6 +39,7 @@ export MASTER_PORT=39591
 
 export NNODES=$SLURM_NNODES
 export GPUS_PER_NODE=${SLURM_GPUS_PER_NODE}
+TOTAL_GPUS=$((NNODES * GPUS_PER_NODE))
 
 echo "MASTER_ADDR: $MASTER_ADDR"
 echo "Running on node: $(hostname)"
@@ -63,4 +64,4 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=mdlm \
-    logging.run_name="'1B-mdlm-fineweb-16gpu-4node-snls-a100-8mbs'"\
+    logging.run_name="'1B-mdlm-fineweb-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-a100-8mbs'"\
