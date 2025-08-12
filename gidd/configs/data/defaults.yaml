@@ -1,9 +1,15 @@
 test_size: 100000
 num_workers: 4
+# for Snellius, use online
 tokenizer_name: gpt2
+# for Leonardo, use downloaded
+# tokenizer_name: /leonardo_work/AIFAC_L01_028/ggala000/tokenizers/models--gpt2/snapshots/607a30d783dfa663caf39e06633721c8d4cfcd7e
 pre_tokenize: false
 sequence_packing: false
 max_add_padding: 0
 trust_remote_code: False
 dataset_subset: null
-cache_dir: ./cache
+# Snellius
+cache_dir: /scratch-shared/donutu1/hf_cache
+# Leonardo
+# cache_dir: /leonardo_scratch/large/userexternal/donutu00/hf_cache

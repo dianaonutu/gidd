@@ -1,4 +1,9 @@
 defaults:
   - defaults
 
-dataset_name: HuggingFaceFW/fineweb
+# dataset_name: HuggingFaceFW/fineweb
+
+# Snellius
+dataset_name: /projects/0/prjs1502/datasets/FineWeb/raw
+# Leonardo
+dataset_name: /leonardo_work/AIFAC_L01_028/ggala000/raw/
