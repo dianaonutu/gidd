@@ -9,3 +9,4 @@ wandb
 logs
 cache
 slurm_logs
+checkpoints
