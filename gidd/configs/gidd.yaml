@@ -30,3 +30,7 @@ loss:
   max_loss_weight: 2.0
   loss_scale: 1.0
   reduction: tokenmean
+
+hydra:
+  run:
+    dir: ./outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}

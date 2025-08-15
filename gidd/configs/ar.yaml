@@ -23,3 +23,7 @@ loss:
   loss_type: ar
   loss_scale: 1.0
   reduction: tokenmean  # not used for AR loss
+
+hydra:
+  run:
+    dir: ./outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
