@@ -1,0 +1,84 @@
+#!/bin/bash
+#SBATCH --job-name=scalability_test
+#SBATCH --partition=gpu_a100
+#SBATCH --time=2:00:00
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
+#SBATCH --cpus-per-task=64
+#SBATCH --gpus-per-node=4
+#SBATCH --output=/scratch-shared/donutu1/logs/slurm_logs/%j.out
+
+# Usage:
+#     sbatch pretrain_snls.job
+
+set -e  # Exit immediately on error
+
+
+# -----------------------------
+# MODEL TYPE
+# -----------------------------
+MODEL=gidd  # options: gidd, ar or mdlm
+
+
+# -----------------------------
+# SOFTWARE
+# -----------------------------
+module purge
+module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12.6.0
+export VENV_PATH=".venv"
+source $VENV_PATH/bin/activate
+
+
+# -----------------------------
+# DISTRIBUTED
+# -----------------------------
+export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+export MASTER_PORT=39591
+
+TOTAL_GPUS=$((SLURM_NNODES * SLURM_GPUS_PER_NODE))
+GPU_TYPE=$(grep "^#SBATCH --partition=" pretrain_snls.job | grep -oP '(?<=gpu_)\w+')
+
+DISTRIBUTED_ARGS=(
+    --nproc-per-node $SLURM_GPUS_PER_NODE 
+    --nnodes $SLURM_NNODES
+)
+
+
+# -----------------------------
+# Logging
+# -----------------------------
+WDIR="/scratch-shared/donutu1/logs"
+TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
+JOB_NAME="1B-gidd-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-8mbs-job${SLURM_JOB_ID}"
+HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
+mkdir -p "$HYDRA_RUN_DIR"
+
+{
+    echo "Job started at: $(date)"
+    echo "Job ID: ${SLURM_JOB_ID}"
+    echo "GPUs per node: ${SLURM_GPUS_PER_NODE}"
+    echo "Total nodes: ${SLURM_NNODES}"
+    echo "Total GPUs: ${TOTAL_GPUS}"
+
+    echo "Running on master node: ${MASTER_ADDR}"
+    echo "Allocated nodes:"
+    scontrol show hostnames $SLURM_JOB_NODELIST
+
+} > "${HYDRA_RUN_DIR}/cluster_allocation.log"
+
+echo "Cluster allocation info saved to ${HYDRA_RUN_DIR}/cluster_allocation.log"
+
+
+# -----------------------------
+# Launch training
+# -----------------------------
+srun torchrun "${DISTRIBUTED_ARGS[@]}" \
+    --rdzv_id=$SLURM_JOBID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    gidd/train.py \
+    --config-name=$MODEL \
+    logging.run_name="'${JOB_NAME}'" \
+    hydra.run.dir="'${HYDRA_RUN_DIR}'" \
