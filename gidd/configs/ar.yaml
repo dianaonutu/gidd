@@ -1,7 +1,7 @@
 defaults:
   - logging: default
-  - data: owt
-  - model: small
+  - data: fineweb
+  - model: 1B
   - optimizer: adam
   - _self_
 
@@ -11,8 +11,8 @@ model:
 training:
   resume: null
   seed: 1
-  train_batch_size: 64
-  eval_batch_size: 64
+  train_batch_size: 8
+  eval_batch_size: 8
   num_train_steps: 1000_000
   lr_schedule: cosine
   warmup_steps: 10000
