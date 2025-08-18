@@ -17,7 +17,7 @@ set -e  # Exit immediately on error
 # -----------------------------
 # MODEL TYPE
 # -----------------------------
-MODEL=gidd  # options: gidd, ar or mdlm
+MODEL=mdlm  # options: gidd, ar or mdlm
 
 
 # -----------------------------
@@ -49,7 +49,7 @@ DISTRIBUTED_ARGS=(
 # -----------------------------
 WDIR="/scratch-shared/donutu1/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="1B-gidd-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-8mbs-job${SLURM_JOB_ID}"
+JOB_NAME="1B-${MODEL}-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-8mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
