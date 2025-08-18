@@ -51,13 +51,14 @@ DISTRIBUTED_ARGS=(
 # -----------------------------
 WDIR="/leonardo_scratch/large/userexternal/donutu00/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="1B-gidd-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lnrd-a100-8mbs-job${SLURM_JOB_ID}"
+JOB_NAME="1B-gidd-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lnrd-${GPU_TYPE}-8mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
 {
     echo "Job started at: $(date)"
     echo "Job ID: ${SLURM_JOB_ID}"
+    echo "GPU type: ${GPU_TYPE}"
     echo "GPUs per node: ${SLURM_GPUS_PER_NODE}"
     echo "Total nodes: ${SLURM_NNODES}"
     echo "Total GPUs: ${TOTAL_GPUS}"
