@@ -1,0 +1,10 @@
+#!/bin/bash
+# Load required modules (example, adjust to your environment)
+module purge
+module load 2024 Python/3.12.3-GCCcore-13.3.0
+
+
+source .venv/bin/activate
+
+# Start Jupyter Notebook
+jupyter notebook --no-browser --port=8080
