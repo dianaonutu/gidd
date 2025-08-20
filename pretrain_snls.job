@@ -17,7 +17,7 @@ set -e  # Exit immediately on error
 # -----------------------------
 # MODEL TYPE
 # -----------------------------
-MODEL=mdlm  # options: gidd, ar or mdlm
+MODEL=gidd  # options: gidd, ar or mdlm
 
 
 # -----------------------------
