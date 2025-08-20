@@ -1,0 +1,105 @@
+#!/bin/bash
+#SBATCH --account=laionize
+#SBATCH --job-name=scalability_test
+#SBATCH --partition=booster
+#SBATCH --time=1:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
+#SBATCH --gpus-per-node=4
+# SBATCH --output=./logs/slurm_logs/%j.out
+
+# Usage:
+#     sbatch pretrain_jsc.job
+
+# For quick tests on max 4 nodes, max 2h walltime and internet connection: #SBATCH --partition=develbooster
+# For more nodes and time: set #SBATCH --partition=booster
+
+set -e  # Exit immediately on error
+
+# -----------------------------
+# MODEL TYPE
+# -----------------------------
+MODEL=gidd  # options: gidd, ar or mdlm
+
+
+# -----------------------------
+# SOFTWARE
+# -----------------------------
+module purge
+module load Stages/2025 GCCcore/.13.3.0 Python/3.12.3 NCCL/default-CUDA-12 PyTorch/2.5.1
+export VENV_PATH="/p/project1/laionize/onutu2_juwelsbooster/gidd/.venv"
+source $VENV_PATH/bin/activate
+
+
+# -----------------------------
+# DISTRIBUTED
+# -----------------------------
+# IP connectivity on compute nodes for compute tasks should be done over the InfiniBand interface.
+# The problem can be avoided by appending an “i” to the hostname.
+# https://apps.fz-juelich.de/jsc/hps/juwels/known-issues.html#ip-connectivity-on-compute-nodes
+export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
+if [ "$SYSTEMNAME" = juwelsbooster ] \
+       || [ "$SYSTEMNAME" = juwels ] \
+       || [ "$SYSTEMNAME" = jurecadc ] \
+       || [ "$SYSTEMNAME" = jusuf ]; then
+    # Allow communication over InfiniBand cells on JSC machines.
+    MASTER_ADDR="$MASTER_ADDR"i
+fi
+export MASTER_PORT=39591
+
+# Note from https://apps.fz-juelich.de/jsc/hps/juwels/gpu-computing.html#gpu-visibility-affinity
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+TOTAL_GPUS=$((SLURM_NNODES * SLURM_GPUS_PER_NODE))
+
+# Found as example here: https://apps.fz-juelich.de/jsc/hps/juwels/batchsystem.html#writing-a-batch-script
+# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}    # error: libgomp: Invalid value for environment variable OMP_NUM_THREADS: 
+
+DISTRIBUTED_ARGS=(
+    --nproc-per-node $SLURM_GPUS_PER_NODE 
+    --nnodes $SLURM_NNODES
+)
+
+
+# -----------------------------
+# Logging
+# -----------------------------
+WDIR="/p/scratch/laionize/onutu2_juwelsbooster/logs"
+TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
+JOB_NAME="1B-${MODEL}-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-jsc-a100-8mbs-job${SLURM_JOB_ID}"
+HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
+mkdir -p "$HYDRA_RUN_DIR"
+
+{
+    echo "Job started at: $(date)"
+    echo "Job ID: ${SLURM_JOB_ID}"
+    echo "GPU type: ${GPU_TYPE}"
+    echo "GPUs per node: ${SLURM_GPUS_PER_NODE}"
+    echo "Total nodes: ${SLURM_NNODES}"
+    echo "Total GPUs: ${TOTAL_GPUS}"
+
+    echo "Running on master node: ${MASTER_ADDR}"
+    echo "Allocated nodes:"
+    scontrol show hostnames $SLURM_JOB_NODELIST
+
+} > "${HYDRA_RUN_DIR}/cluster_allocation.log"
+
+echo "Cluster allocation info saved to ${HYDRA_RUN_DIR}/cluster_allocation.log"
+
+
+# Offline wandb logging
+export WANDB_MODE=offline
+
+# -----------------------------
+# Launch training
+# -----------------------------
+srun torchrun "${DISTRIBUTED_ARGS[@]}" \
+    --rdzv_id=$SLURM_JOBID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    gidd/train.py \
+    --config-name=$MODEL \
+    logging.run_name="'${JOB_NAME}'" \
+    hydra.run.dir="'${HYDRA_RUN_DIR}'" \
