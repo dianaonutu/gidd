@@ -1,9 +1,13 @@
 #!/bin/bash
 
+# -----------------------------------
+# Need to adjust on which HPC to run the sweep.
+# -----------------------------------
+
+job_script="pretrain_snls.job"
+
 nodes_list=(1 2 4 8 16)
 gpus_list=(4)
-
-job_script="pretrain_gidd_snellius.job"
 
 # Submit special case node=1, gpu=1
 echo "Submitting special case: nodes=1, gpus=1"
