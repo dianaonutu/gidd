@@ -43,6 +43,12 @@ DISTRIBUTED_ARGS=(
     --nnodes $SLURM_NNODES
 )
 
+# 1. Check if the nodes establish connection
+# 2. Check if you see NCCL WARN NET/Socket : Socket failure, then you need to export NCCL_SOCKET_IFNAME=ib0
+# 3. Check if you see something like (below). Then, you know that InfiniBand interface is used.
+# jwb0117:378071:378216 [0] NCCL INFO Using network IB 
+# jwb0117:378073:378219 [2] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [2]mlx5_2:1/IB [3]mlx5_3:1/IB [RO]; OOB ib0:10.13.23.95<0>
+export NCCL_DEBUG=INFO
 
 # -----------------------------
 # Logging
