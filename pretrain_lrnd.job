@@ -57,7 +57,6 @@ mkdir -p "$HYDRA_RUN_DIR"
 {
     echo "Job started at: $(date)"
     echo "Job ID: ${SLURM_JOB_ID}"
-    echo "GPU type: ${GPU_TYPE}"
     echo "GPUs per node: ${SLURM_GPUS_PER_NODE}"
     echo "Total nodes: ${SLURM_NNODES}"
     echo "Total GPUs: ${TOTAL_GPUS}"
