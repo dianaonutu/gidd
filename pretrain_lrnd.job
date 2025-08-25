@@ -3,7 +3,7 @@
 #SBATCH --job-name=scalability_test
 #SBATCH --partition=boost_usr_prod
 #SBATCH --time=1:00:00
-#SBATCH --nodes=4
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --cpus-per-task=32
 #SBATCH --gpus-per-node=4
@@ -16,23 +16,25 @@ set -e  # Exit immediately on error
 
 
 # -----------------------------
-# MODEL TYPE
+# MODEL CONFIGS
 # -----------------------------
-MODEL=gidd  # options: gidd, ar or mdlm
+MODEL=gidd-pu0.0  # options: gidd-pu0.0, ar or mdlm
+MODEL_SIZE=1B # options: 1B, small, base, tiny
+DATASET=fineweb
+MBS=8
 
 
 # -----------------------------
 # SOFTWARE
 # -----------------------------
 module purge
-module load python/3.11.7
-module load nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
-export VENV_PATH=".venv"
+module load python/3.11.7 nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
+export VENV_PATH="/leonardo_work/AIFAC_L01_028/donutu/gidd/.venv"
 source $VENV_PATH/bin/activate
 
 
 # -----------------------------
-# DISTRIBUTED
+# DISTRIBUTED TRAINING
 # -----------------------------
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=39591
@@ -44,13 +46,20 @@ DISTRIBUTED_ARGS=(
     --nnodes $SLURM_NNODES
 )
 
+# 1. Check if the nodes establish connection
+# 2. Check if you see NCCL WARN NET/Socket : Socket failure, then you need to export NCCL_SOCKET_IFNAME=ib0
+# 3. Check if you see something like (below). Then, you know that InfiniBand interface is used.
+# jwb0117:378071:378216 [0] NCCL INFO Using network IB 
+# jwb0117:378073:378219 [2] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [2]mlx5_2:1/IB [3]mlx5_3:1/IB [RO]; OOB ib0:10.13.23.95<0>
+# export NCCL_DEBUG=INFO
+
 
 # -----------------------------
 # Logging
 # -----------------------------
 WDIR="/leonardo_scratch/large/userexternal/donutu00/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="1B-${MODEL}-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lnrd-a100-8mbs-job${SLURM_JOB_ID}"
+JOB_NAME="${MODEL_SIZE}-${MODEL}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lnrd-a100-${MBS}mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
@@ -69,10 +78,6 @@ mkdir -p "$HYDRA_RUN_DIR"
 
 echo "Cluster allocation info saved to ${HYDRA_RUN_DIR}/cluster_allocation.log"
 
-
-# Check if the nodes establish connection
-# export NCCL_DEBUG=INFO
-
 # Offline wandb logging
 export WANDB_MODE=offline
 
@@ -88,5 +93,5 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=$MODEL \
-    logging.run_name="'${JOB_NAME}'" \
-    hydra.run.dir="'${HYDRA_RUN_DIR}'" \
+    logging.run_name="${JOB_NAME}" \
+    hydra.run.dir="${HYDRA_RUN_DIR}" \

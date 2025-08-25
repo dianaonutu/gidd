@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=scalability_test
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --time=2:00:00
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=64  # 72 for a100
 #SBATCH --gpus-per-node=4
 #SBATCH --output=/scratch-shared/donutu1/logs/slurm_logs/%j.out
 
@@ -15,9 +15,12 @@ set -e  # Exit immediately on error
 
 
 # -----------------------------
-# MODEL TYPE
+# MODEL CONFIGS
 # -----------------------------
-MODEL=gidd  # options: gidd, ar or mdlm
+MODEL=gidd-pu0.0  # options: gidd-pu0.0, ar or mdlm
+MODEL_SIZE=1B # options: 1B, small, base, tiny
+DATASET=fineweb
+MBS=8
 
 
 # -----------------------------
@@ -25,12 +28,12 @@ MODEL=gidd  # options: gidd, ar or mdlm
 # -----------------------------
 module purge
 module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12.6.0
-export VENV_PATH=".venv"
+export VENV_PATH="/projects/0/prjs1502/gidd/.venv"
 source $VENV_PATH/bin/activate
 
 
 # -----------------------------
-# DISTRIBUTED
+# DISTRIBUTED TRAINING
 # -----------------------------
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_PORT=39591
@@ -48,14 +51,14 @@ DISTRIBUTED_ARGS=(
 # 3. Check if you see something like (below). Then, you know that InfiniBand interface is used.
 # jwb0117:378071:378216 [0] NCCL INFO Using network IB 
 # jwb0117:378073:378219 [2] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [2]mlx5_2:1/IB [3]mlx5_3:1/IB [RO]; OOB ib0:10.13.23.95<0>
-export NCCL_DEBUG=INFO
+# export NCCL_DEBUG=INFO
 
 # -----------------------------
 # Logging
 # -----------------------------
 WDIR="/scratch-shared/donutu1/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="1B-${MODEL}-fineweb-pu=0.0-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-8mbs-job${SLURM_JOB_ID}"
+JOB_NAME="${MODEL_SIZE}-${MODEL}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-${MBS}mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
@@ -87,5 +90,5 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=$MODEL \
-    logging.run_name="'${JOB_NAME}'" \
-    hydra.run.dir="'${HYDRA_RUN_DIR}'" \
+    logging.run_name="${JOB_NAME}" \
+    hydra.run.dir="${HYDRA_RUN_DIR}" \
