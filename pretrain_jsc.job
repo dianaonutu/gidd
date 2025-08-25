@@ -3,10 +3,10 @@
 #SBATCH --job-name=scalability_test
 #SBATCH --partition=develbooster
 #SBATCH --time=30:00
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=96    
+#SBATCH --cpus-per-task=48    
 #SBATCH --output=/p/scratch/laionize/onutu2/logs/slurm_logs/%j.out
 
 # Usage:
