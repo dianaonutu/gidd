@@ -3,7 +3,7 @@
 #SBATCH --job-name=scalability_test
 #SBATCH --partition=booster
 #SBATCH --time=30:00
-#SBATCH --nodes=16
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=48    
@@ -15,7 +15,8 @@
 # Quick tests on max 4 nodes, max 2h wallclock time and internet connection: #SBATCH --partition=develbooster
 # Otherwise, max 24h wallclock time set: #SBATCH --partition=booster
 
-set -e  # Exit immediately on error
+# Bash "strict mode" (see http://redsymbol.net/articles/unofficial-bash-strict-mode/)
+set -euo pipefail
 
 
 # -----------------------------

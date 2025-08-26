@@ -11,7 +11,8 @@
 # Usage:
 #     sbatch pretrain_snls.job
 
-set -e  # Exit immediately on error
+# Bash "strict mode" (see http://redsymbol.net/articles/unofficial-bash-strict-mode/)
+set -euo pipefail
 
 
 # -----------------------------

@@ -15,7 +15,8 @@
 # For quick tests on max 2 nodes: #SBATCH --qos=boost_qos_dbg
 # For large node numbers (> 64 nodes): add #SBATCH --qos=boost_qos_bprod
 
-set -e  # Exit immediately on error
+# Bash "strict mode" (see http://redsymbol.net/articles/unofficial-bash-strict-mode/)
+set -euo pipefail
 
 
 # -----------------------------
