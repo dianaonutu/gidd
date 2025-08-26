@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --account=laionize
 #SBATCH --job-name=scalability_test
-#SBATCH --partition=develbooster
+#SBATCH --partition=booster
 #SBATCH --time=30:00
-#SBATCH --nodes=2
+#SBATCH --nodes=16
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=48    
@@ -12,8 +12,8 @@
 # Usage:
 #     sbatch pretrain_jsc.job
 
-# Quick tests on max 4 nodes, max 2h walltime and internet connection: #SBATCH --partition=develbooster
-# Otherwise set: #SBATCH --partition=booster
+# Quick tests on max 4 nodes, max 2h wallclock time and internet connection: #SBATCH --partition=develbooster
+# Otherwise, max 24h wallclock time set: #SBATCH --partition=booster
 
 set -e  # Exit immediately on error
 
@@ -21,8 +21,9 @@ set -e  # Exit immediately on error
 # -----------------------------
 # MODEL CONFIGS
 # -----------------------------
-MODEL=gidd-pu0.0  # options: gidd-pu0.0, ar or mdlm
-MODEL_SIZE=1B # options: 1B, small, base, tiny
+MODEL=gidd          # options: gidd, ar or mdlm
+MODEL_TYPE=-pu0.0   # options: -pu0.0, or none if ar or mdlm
+MODEL_SIZE=1B       # options: 1B, small, base, tiny
 DATASET=fineweb
 MBS=8
 
@@ -83,7 +84,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 # -----------------------------
 WDIR="/p/scratch/laionize/onutu2/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="${MODEL_SIZE}-${MODEL}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-jsc-a100-${MBS}mbs-job${SLURM_JOB_ID}"
+JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-jsc-a100-${MBS}mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
