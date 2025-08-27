@@ -9,3 +9,5 @@ wandb
 .vscode
 logs
 cache
+.ipynb_checkpoints
+gidd/configs
