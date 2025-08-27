@@ -10,4 +10,4 @@ wandb
 logs
 cache
 .ipynb_checkpoints
-gidd/configs
+gidd/configs/*
