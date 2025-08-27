@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=scalability_test
-#SBATCH --partition=gpu_h100
-#SBATCH --time=2:00:00
-#SBATCH --nodes=4
+#SBATCH --partition=gpu_a100
+#SBATCH --time=1:00:00
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
-#SBATCH --cpus-per-task=64  # 72 for a100
+#SBATCH --cpus-per-task=72  # 72 for a100, 64 for h100
 #SBATCH --gpus-per-node=4
 #SBATCH --output=/scratch-shared/donutu1/logs/slurm_logs/%j.out
 
@@ -22,8 +22,8 @@ MODEL=gidd          # options: gidd, ar or mdlm
 MODEL_TYPE=-pu0.0   # options: -pu0.0, or none if ar or mdlm
 MODEL_SIZE=1B       # options: 1B, small, base, tiny
 DATASET=fineweb
-MBS=8
-
+MBS=8               # previously, mbs=8
+CL=-1024cl          # Context length. previously 512
 
 # -----------------------------
 # SOFTWARE
@@ -60,7 +60,7 @@ DISTRIBUTED_ARGS=(
 # -----------------------------
 WDIR="/scratch-shared/donutu1/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-${MBS}mbs-job${SLURM_JOB_ID}"
+JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-${MBS}mbs${CL}-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
