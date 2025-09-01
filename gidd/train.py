@@ -202,10 +202,17 @@ def main(config):
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
 
+
+    GAS = 4
+
+
     with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
         for step in range(state.step, config.training.num_train_steps):
                 
             ### TRAIN ###
+
+            if step == 10:
+                break
 
             try:
                 batch = next(batch_iterator)
@@ -224,15 +231,25 @@ def main(config):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
             loss, metrics = ddp_trainer(batch)
 
-            (loss * config.loss.loss_scale).backward()
+            #### LOSS scaling
+            scaled_loss = loss / GAS
+            scaled_loss.backward()
+            # (loss * config.loss.loss_scale).backward()
+
+            print(f"Step {step}, micro-batch loss: {loss.item():.4f}")
+
 
             if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
             else:
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
 
-            optimizer.step()
-            optimizer.zero_grad()
+            print(f"    Grad norm (pre-step): {norm:.4f}")
+
+            if (step + 1) % GAS == 0:
+                print(">> Doing optimizer step")
+                optimizer.step()
+                optimizer.zero_grad()
 
             batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
             batch_flops = flops_per_batch * config.training.world_size
