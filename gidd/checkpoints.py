@@ -9,8 +9,9 @@ import numpy as np
 from transformers import AutoTokenizer
 from omegaconf import OmegaConf
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import StateDictType
+from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 
 from gidd.diffusion_process import get_noise_schedule
 from gidd.modeling import get_model
@@ -36,26 +37,22 @@ def save_checkpoint(path, trainer: DiffusionTrainer, optimizer, state: TrainingS
     path.mkdir(exist_ok=True, parents=True)
     # save config
     OmegaConf.save(config=trainer.config, f=path / "config.yaml", resolve=True)
-    # save model
-    if isinstance(trainer.model, FSDP):
-        with FSDP.state_dict_type(trainer.model, StateDictType.FULL_STATE_DICT):
-            full_state_dict = trainer.model.state_dict()
-            # Only rank 0 saves the file
-            if dist.get_rank() == 0:
-                torch.save(full_state_dict, path / "model.pt")
+    # save model and optimizer
+    if isinstance(trainer.model, (FSDP, DDP)):
+        model_state_dict, optim_state_dict = get_state_dict(trainer.model, optimizer)
     else:
-        torch.save(trainer.model.state_dict(), path / "model.pt")
-    trainer.tokenizer.save_pretrained(path)
+        model_state_dict, optim_state_dict = (
+            trainer.model.state_dict(),
+            optimizer.state_dict()
+        )
+    # Only rank 0 writes files
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        torch.save(model_state_dict, path / "model.pt")
+        torch.save(optim_state_dict, path / "optimizer.pt")
+        trainer.tokenizer.save_pretrained(path)
     # save noise schedule
     if hasattr(trainer, "noise_schedule"):
         torch.save(trainer.noise_schedule.state_dict(), path / "noise_schedule.pt")
-    # save optimizer
-    if isinstance(trainer.model, FSDP):
-        optim_state = FSDP.optim_state_dict(trainer.model, optimizer)
-        if dist.get_rank() == 0:
-            torch.save(optim_state, path / "optimizer.pt")
-    else:
-        torch.save(optimizer.state_dict(), path / "optimizer.pt")
     # save training state
     if dist.get_rank() == 0:
         with open(path / "state.json", "w") as f:
@@ -67,9 +64,14 @@ def load_checkpoint(path, device=None):
 
     tokenizer = AutoTokenizer.from_pretrained(path)
 
-    model_state_dict = torch.load(Path(path, "model.pt"), map_location="cpu", weights_only=True)
     model = get_model(config, tokenizer, device="cpu")
-    model.load_state_dict(model_state_dict)
+
+    model_state_dict = torch.load(Path(path, "model.pt"), map_location="cpu", weights_only=True)
+    if isinstance(model, (FSDP, DDP)):
+        set_state_dict(model, model_state_dict)
+    else:
+        model.load_state_dict(model_state_dict)
+
     if device is not None:
         model.to(device)
 
@@ -103,7 +105,10 @@ def load_checkpoint_for_training(path, config=None, device=None, dtype=None):
     # initialize and load optimizer state
     optimizer = get_optimizer(config, trainer)
     opt_state_dict = torch.load(Path(path, "optimizer.pt"), map_location="cpu", weights_only=True)
-    optimizer.load_state_dict(opt_state_dict)
+    if isinstance(trainer.model, (FSDP, DDP)):
+        set_state_dict(trainer.model, opt_state_dict, optimizer=optimizer)
+    else:
+        optimizer.load_state_dict(opt_state_dict)
     # load training state
     with open(Path(path, "state.json")) as f:
         state = TrainingState(**json.load(f))
