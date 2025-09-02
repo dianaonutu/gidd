@@ -75,9 +75,12 @@ class AutoregressiveTrainer(nn.Module):
             total_loss = (loss * loss_mask).sum()
             total_tokens = loss_mask.sum().float()
 
-            if self.world_size > 1:
+            if self.world_size > 1 and self.config.training.fsdp:
                 dist.all_reduce(total_tokens)
                 total_tokens /= self.world_size
+                if self.config.training.fsdp:
+                    dist.all_reduce(total_loss)
+                    total_loss /= self.world_size
 
             loss = total_loss / total_tokens
 

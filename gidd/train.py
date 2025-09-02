@@ -13,6 +13,9 @@ import tqdm
 import wandb
 from omegaconf import OmegaConf, open_dict
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+import functools
 
 from gidd.models.dit import DIT
 from gidd.checkpoints import (
@@ -102,8 +105,17 @@ def main(config):
 
     if config.training.resume is None:
         tokenizer = get_tokenizer(config)
-
         model = get_model(config, tokenizer, dtype=dtype)
+
+        if config.training.fsdp:
+            auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1_000_000)
+
+            model = FSDP(model,
+                        auto_wrap_policy=auto_wrap_policy,
+                        sharding_strategy=torch.distributed.fsdp.ShardingStrategy.FULL_SHARD,
+                        device_id=torch.cuda.current_device()
+                        )
+
         noise_schedule = get_noise_schedule(config, tokenizer)
         loss_fn = get_loss(config, tokenizer, noise_schedule)
         trainer = get_trainer(config, model, tokenizer, noise_schedule, loss_fn, dtype)
@@ -155,14 +167,19 @@ def main(config):
     trainable_params = sum(p.numel() for p in trainer.parameters() if p.requires_grad)
 
     if config.training.compile_model:
-        opt_trainer = torch.compile(trainer)
+        if isinstance(trainer.model, FSDP): #avoid compiling when using FSDP
+            opt_trainer = trainer
+        else:
+            opt_trainer = torch.compile(trainer)
     else:
         opt_trainer = trainer
 
-    if is_distributed:
-        ddp_trainer = DDP(opt_trainer, device_ids=[device.index])
+    if is_distributed and config.training.fsdp:
+        dist_trainer = opt_trainer
+    elif is_distributed and not config.training.fsdp:
+        dist_trainer = DDP(opt_trainer, device_ids=[device.index])
     else:
-        ddp_trainer = opt_trainer
+        dist_trainer = opt_trainer
 
     if is_main_process:
         non_emb_params_str = f"{non_emb_params / 1e6:.1f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.1f}B"
@@ -222,7 +239,7 @@ def main(config):
                 param_group["lr"] = curr_lr
 
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-            loss, metrics = ddp_trainer(batch)
+            loss, metrics = dist_trainer(batch)
 
             (loss * config.loss.loss_scale).backward()
 
@@ -287,7 +304,7 @@ def main(config):
                         bs = test_batch["input_ids"].size(0)
 
                         test_batch = {k: v.to(device, non_blocking=True) for k, v in test_batch.items()}
-                        loss, metrics = ddp_trainer(test_batch)
+                        loss, metrics = dist_trainer(test_batch)
 
                         for k, v in metrics.items():
                             eval_metrics[k] = eval_metrics.get(k, 0) + (v.item() if isinstance(v, torch.Tensor) else v) * bs
