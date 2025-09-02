@@ -201,19 +201,12 @@ def main(config):
 
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
-
-
-    GAS = 4
-
-
+    
+    optimizer.zero_grad() # clear gradients
     with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
         for step in range(state.step, config.training.num_train_steps):
                 
             ### TRAIN ###
-
-            if step == 10:
-                break
-
             try:
                 batch = next(batch_iterator)
             except StopIteration:
@@ -231,25 +224,20 @@ def main(config):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
             loss, metrics = ddp_trainer(batch)
 
-            #### LOSS scaling
-            scaled_loss = loss / GAS
-            scaled_loss.backward()
-            # (loss * config.loss.loss_scale).backward()
+            scaled_loss = loss / config.training.accum_steps # scale loss
+            scaled_loss.backward() # calculate gradients. they are accumulated (summed) if optimizer.zero_grad() is not called before each backward pass
 
-            print(f"Step {step}, micro-batch loss: {loss.item():.4f}")
+            norm = None # default value for grad norm (in steps without optimizer update)
+            # update parameters after accumulating gradients
+            if (step + 1) % config.training.accum_steps == 0:
+                # gradient clipping
+                if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
+                else:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
 
-
-            if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
-            else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
-
-            print(f"    Grad norm (pre-step): {norm:.4f}")
-
-            if (step + 1) % GAS == 0:
-                print(">> Doing optimizer step")
-                optimizer.step()
-                optimizer.zero_grad()
+                optimizer.step() # update parameters
+                optimizer.zero_grad() # clear gradients
 
             batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
             batch_flops = flops_per_batch * config.training.world_size
@@ -266,7 +254,7 @@ def main(config):
                 "train/loss": loss.item(),
                 "train/lr": curr_lr,
                 "train/step": step + 1,
-                "train/grad_norm": norm.item(),
+                "train/grad_norm": norm.item() if norm is not None else float("nan"),
                 "train/epoch": step / len(train_dl),
                 "train/total_tokens": state.total_tokens,
                 "train/total_flops": state.total_flops,
