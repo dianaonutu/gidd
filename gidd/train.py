@@ -244,9 +244,9 @@ def main(config):
             (loss * config.loss.loss_scale).backward()
 
             if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
+                norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
             else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
+                norm = FSDP.clip_grad_norm_(model, 1e6)
 
             optimizer.step()
             optimizer.zero_grad()
