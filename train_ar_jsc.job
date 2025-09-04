@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=1B-ar-fineweb-4gpu-1node-jsc-a100-64bs
-#SBATCH --nodes=1
+#SBATCH --job-name=1B-ar-fineweb-64gpu-16node-jsc-a100-8bs-fsdp
+#SBATCH --nodes=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=48
-#SBATCH --time=01:30:00
+#SBATCH --time=01:00:00
 #SBATCH --account=laionize
-#SBATCH --partition=develbooster
+#SBATCH --partition=booster
 #SBATCH --output=/p/project/laionize/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.out
 #SBATCH --error=/p/project/laionize/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.err
 
@@ -58,7 +58,7 @@ DISTRIBUTED_ARGS=(
 # STILL A NECESSARY WORKAROUND TO MAKE ALL GPUs on the nodes visible
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
-export WDIR="/p/project/laionize/vettoruzzo1_juwelsbooster/gidd/gidd_mdlm_logs"
+export WDIR="/p/project/laionize/vettoruzzo1_juwelsbooster/gidd_logs"
 
 # to run wandb in offline mode
 export WANDB_MODE=offline
@@ -74,5 +74,6 @@ srun env -u CUDA_VISIBLE_DEVICES torchrun_jsc "${DISTRIBUTED_ARGS[@]}" \
   --master_port=$MASTER_PORT \
   -m gidd.train \
     --config-name=ar \
+    logging.wandb_project=gidd-ar \
     logging.run_name="$SLURM_JOB_NAME" \
     hydra.job.name="$SLURM_JOB_NAME"

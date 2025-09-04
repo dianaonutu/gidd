@@ -74,5 +74,6 @@ srun env -u CUDA_VISIBLE_DEVICES torchrun_jsc "${DISTRIBUTED_ARGS[@]}" \
   --master_port=$MASTER_PORT \
   -m gidd.train \
     --config-name=gidd \
+    logging.wandb_project=gidd-gidd \
     logging.run_name="$SLURM_JOB_NAME" \
     hydra.job.name="$SLURM_JOB_NAME"
