@@ -18,6 +18,7 @@ training:
   warmup_steps: 10
   dtype: bf16
   compile_model: True
+  fsdp: True
 
 loss:
   loss_type: ar

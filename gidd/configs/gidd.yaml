@@ -22,6 +22,7 @@ training:
   low_discrepancy_sampling: True
   dtype: bf16
   compile_model: True
+  fsdp: True
 
 loss:
   loss_type: gidd
