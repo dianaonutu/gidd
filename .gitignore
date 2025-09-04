@@ -10,4 +10,3 @@ logs
 cache
 slurm_logs
 checkpoints
-gidd/configs/*
