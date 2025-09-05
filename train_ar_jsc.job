@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=48
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --account=laionize
 #SBATCH --partition=booster
 #SBATCH --output=/p/project/laionize/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.out
@@ -24,11 +24,8 @@ source $VENV_PATH/bin/activate
 # Set directories
 curr_file="$(scontrol show job "$SLURM_JOB_ID" | grep '^[[:space:]]*Command=' | head -n 1 | cut -d '=' -f 2-)"
 curr_dir="$(dirname "$curr_file")"
-echo "Current file: $curr_file"
-echo "Current directory: $curr_dir"
 # Add outer 'gidd/' directory to PYTHONPATH so imports like 'from gidd.models...' work
 export PYTHONPATH="/p/project1/laionize/vettoruzzo1_juwelsbooster/gidd:$PYTHONPATH" 
-echo "Python path: $PYTHONPATH"
 
 # Distributed training
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
@@ -47,8 +44,15 @@ echo "Job submission date: $(date)"
 NODE_COUNT=$(scontrol show hostnames $SLURM_JOB_NODELIST | wc -l)
 echo "Number of nodes allocated: $NODE_COUNT"
 
+TOTAL_GPUS=$((SLURM_NNODES * SLURM_GPUS_PER_NODE))
+echo "Number of GPUs allocated: $TOTAL_GPUS"
+
 echo "MASTER_ADDR: $MASTER_ADDR"
 echo "Running on node: $(hostname)"
+
+echo "Current file: $curr_file"
+echo "Current directory: $curr_dir"
+echo "Python path: $PYTHONPATH"
 
 DISTRIBUTED_ARGS=(
     --nproc-per-node $SLURM_GPUS_PER_NODE 
