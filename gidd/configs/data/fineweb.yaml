@@ -1,4 +1,10 @@
 defaults:
   - defaults
 
+# ---- Snellius
+# dataset_name: /projects/0/prjs1502/datasets/FineWeb/raw
+# ---- Leonardo
+# dataset_name: /leonardo_work/AIFAC_L01_028/ggala000/raw/
+# ---- JSC/Juwels on laionize project
+# dataset_name: /p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT
 dataset_name: /p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT
