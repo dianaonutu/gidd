@@ -30,14 +30,12 @@ class TrainingState:
     start_time: float = -1
     curr_time: float = -1
 
-
-def save_checkpoint(path, trainer: DiffusionTrainer, optimizer, state: TrainingState):
-    if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
-    path.mkdir(exist_ok=True, parents=True)
-    # save config
-    OmegaConf.save(config=trainer.config, f=path / "config.yaml", resolve=True)
-    # save model and optimizer
+def build_checkpoint_state(trainer: DiffusionTrainer, optimizer, state: TrainingState):
+    """
+    Build in-memory checkpoint state. MUST be called on ALL ranks because it
+    may trigger FSDP collectives (e.g., full_state_dict()).
+    Returns (model_state_dict, optim_state_dict, extra_state).
+    """
     if isinstance(trainer.model, (FSDP, DDP)):
         model_state_dict, optim_state_dict = get_state_dict(trainer.model, optimizer)
     else:
@@ -45,18 +43,56 @@ def save_checkpoint(path, trainer: DiffusionTrainer, optimizer, state: TrainingS
             trainer.model.state_dict(),
             optimizer.state_dict()
         )
-    # Only rank 0 writes files
-    if not dist.is_initialized() or dist.get_rank() == 0:
-        torch.save(model_state_dict, path / "model.pt")
-        torch.save(optim_state_dict, path / "optimizer.pt")
-        trainer.tokenizer.save_pretrained(path)
-    # save noise schedule
+
     if hasattr(trainer, "noise_schedule"):
-        torch.save(trainer.noise_schedule.state_dict(), path / "noise_schedule.pt")
+        noise_schedule_state_dict = trainer.noise_schedule.state_dict()
+    else:
+        noise_schedule_state_dict = []
+    return model_state_dict, optim_state_dict, noise_schedule_state_dict
+
+
+def write_checkpoint_to_disk(path: Path, trainer: DiffusionTrainer, model_state_dict, optim_state_dict, noise_schedule_state_dict, state: TrainingState):
+    """
+    Only rank 0 should call this function (it writes files).
+    """
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(exist_ok=True, parents=True)
+
+    # save config
+    OmegaConf.save(config=trainer.config, f=path / "config.yaml", resolve=True)
+
+    torch.save(model_state_dict, path / "model.pt")
+    torch.save(optim_state_dict, path / "optimizer.pt")
+    trainer.tokenizer.save_pretrained(path)
+
+    # save noise schedule
+    if noise_schedule_state_dict:
+        torch.save(noise_schedule_state_dict, path / "noise_schedule.pt")
+
     # save training state
-    if dist.get_rank() == 0:
-        with open(path / "state.json", "w") as f:
-            json.dump(asdict(state), f)
+    with open(path / "state.json", "w") as f:
+        json.dump(asdict(state), f)
+
+
+def save_checkpoint(path, trainer: DiffusionTrainer, optimizer, state: TrainingState):
+    # All ranks build the checkpoint (necessary for FSDP)
+    model_state_dict, optim_state_dict, noise_schedule_state_dict = build_checkpoint_state(trainer, optimizer, state)
+    dist.barrier()
+
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        write_checkpoint_to_disk(path, trainer, model_state_dict, optim_state_dict, noise_schedule_state_dict, state)
+
+    dist.barrier()
+    
+    # Free big objects on non-main ranks
+    if dist.is_initialized() and dist.get_rank() != 0:
+        del model_state_dict
+        del optim_state_dict
+        del noise_schedule_state_dict
+
+    # final barrier optional
+    dist.barrier()
 
 
 def load_checkpoint(path, device=None):

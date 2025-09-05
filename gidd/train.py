@@ -101,7 +101,8 @@ def main(config):
 
     dtype = parse_dtype(config.training.dtype)
     device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using {device=} and {dtype=}")
+    if is_main_process:
+        print(f"Using {device=} and {dtype=}")
 
     if config.training.resume is None:
         tokenizer = get_tokenizer(config)
@@ -335,11 +336,8 @@ def main(config):
             # increment step before saving so that resuming from the checkpoint will start at the next step
             state.step += 1
             if ((step + 1) % config.logging.save_freq) == 0:
-                dist.barrier()
                 output_path = Path(config.logging.save_dir, "latest")
-                if is_main_process:
-                    save_checkpoint(output_path, trainer, optimizer, state)
-                dist.barrier()
+                save_checkpoint(output_path, trainer, optimizer, state)
                 output_path.mkdir(exist_ok=True, parents=True)
                 save_rng_state(output_path, global_rank)
                 dist.barrier()
