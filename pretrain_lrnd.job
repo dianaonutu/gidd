@@ -2,8 +2,8 @@
 #SBATCH --account=aifac_l01_028
 #SBATCH --job-name=scalability_test
 #SBATCH --partition=boost_usr_prod
-#SBATCH --time=1:00:00
-#SBATCH --nodes=1
+#SBATCH --time=40:00
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
 #SBATCH --cpus-per-task=32
 #SBATCH --gpus-per-node=4
@@ -22,7 +22,7 @@ set -euo pipefail
 # -----------------------------
 # MODEL CONFIGS
 # -----------------------------
-MODEL=gidd-pu0.0  # options: gidd-pu0.0, ar or mdlm
+MODEL=gidd  # options: gidd-pu0.0, ar or mdlm
 MODEL_TYPE=-pu0.0   # options: -pu0.0, or none if ar or mdlm
 MODEL_SIZE=1B # options: 1B, small, base, tiny
 DATASET=fineweb
@@ -64,7 +64,7 @@ DISTRIBUTED_ARGS=(
 # -----------------------------
 WDIR="/leonardo_scratch/large/userexternal/donutu00/logs"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lnrd-a100-${MBS}mbs-job${SLURM_JOB_ID}"
+JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-lrnd-a100-${MBS}mbs-job${SLURM_JOB_ID}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
