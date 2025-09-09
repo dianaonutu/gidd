@@ -17,8 +17,11 @@ training:
   lr_schedule: cosine
   warmup_steps: 10
   dtype: bf16
-  compile_model: True
-  fsdp: False
+  compile_model: False
+  fsdp: True
+  fsdp_sharding_strategy: SHARD_GRAD_OP
+  fsdp_precision: mixed
+  wrapping_strategy: null
 
 loss:
   loss_type: ar

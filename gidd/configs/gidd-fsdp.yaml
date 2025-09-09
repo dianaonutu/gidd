@@ -6,7 +6,10 @@ defaults:
   - _self_
 
 model:
-  type: autoregressive
+  type: diffusion
+  diffusion_process: gidd
+  p_uniform: 0.0
+  t_eps: 1e-4
 
 training:
   resume: null
@@ -16,14 +19,21 @@ training:
   num_train_steps: 2000
   lr_schedule: cosine
   warmup_steps: 10
+  low_discrepancy_sampling: True
   dtype: bf16
   compile_model: True
-  fsdp: False
-
+  fsdp: True
+  fsdp_sharding_strategy: SHARD_GRAD_OP
+  fsdp_precision: mixed
+  wrapping_strategy: null
+  
 loss:
-  loss_type: ar
+  loss_type: gidd
+  loss_weighting: dynamic  # [dynamic, clip, none]
+  min_loss_weight: 0.0
+  max_loss_weight: 2.0
   loss_scale: 1.0
-  reduction: tokenmean  # not used for AR loss
+  reduction: tokenmean
 
 hydra:
   run:

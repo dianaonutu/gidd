@@ -59,7 +59,7 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   gidd/train.py \
-    --config-name=ar \
+    --config-name=ar_fsdp \
     data.dataset_name: /projects/0/prjs1502/datasets/FineWeb/raw \
     data.tokenizer_name: gpt2 \
     data.cache_dir: /scratch-shared/avettoruzzo/datasets \

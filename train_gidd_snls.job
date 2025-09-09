@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=1B-gidd-fineweb-4gpu-1node-snls-h100-8bs-fsdp
-#SBATCH --nodes=1
+#SBATCH --job-name=1B-gidd-fineweb-8gpu-2node-snls-h100-8bs-fsdp-olmo
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --partition=gpu_h100
@@ -65,7 +65,7 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     gidd/train.py \
-        --config-name=gidd \
+        --config-name=gidd-fsdp \
         data.dataset_name: /projects/0/prjs1502/datasets/FineWeb/raw \
         data.tokenizer_name: gpt2 \
         data.cache_dir: /scratch-shared/avettoruzzo/datasets \

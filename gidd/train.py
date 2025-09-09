@@ -109,13 +109,23 @@ def main(config):
         model = get_model(config, tokenizer, dtype=dtype)
 
         if config.training.fsdp:
-            auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1_000_000)
+            if is_main_process:
+                print("Wrapping model with FSDP")
+            if config.training.wrapping_strategy:
+                auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1_000_000)
+            else: 
+                auto_wrap_policy = None
 
             model = FSDP(model,
                         auto_wrap_policy=auto_wrap_policy,
-                        sharding_strategy=torch.distributed.fsdp.ShardingStrategy.FULL_SHARD,
+                        sharding_strategy=config.training.fsdp_sharding_strategy,
+                        mixed_precision=config.training.fsdp_precision,
+                        limit_all_gathers=True,
                         device_id=torch.cuda.current_device()
                         )
+            
+        if is_main_process:
+            print(f"Model: {model}")
 
         noise_schedule = get_noise_schedule(config, tokenizer)
         loss_fn = get_loss(config, tokenizer, noise_schedule)
