@@ -193,14 +193,19 @@ def main(config):
     else:
         dist_trainer = opt_trainer
 
+    # Gradient accumulation
+    config.training.device_train_batch_size = config.training.global_train_batch_size // config.training.world_size
+    config.training.train_grad_accum_steps = config.training.device_train_batch_size // config.training.train_batch_size
+
     if is_main_process:
         non_emb_params_str = f"{non_emb_params / 1e6:.1f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.1f}B"
         trainable_params_str = f"{trainable_params / 1e6:.1f}M" if trainable_params < 500 * 1e6 else f"{trainable_params / 1e9:.1f}B"
         print(f"*** Starting training ***")
         print(f"* World size: {world_size}")
         print(f"* FLOPS per batch: {flops_per_batch:.3g}")
-        print(f"* Per-device batch size: {config.training.train_batch_size}")
-        print(f"* Total batch size: {config.training.train_batch_size * world_size}")
+        print(f"* Per-device micro batch size: {config.training.train_microbatch_size}")
+        print(f"* Per-device gradient accumulation steps: {config.training.train_grad_acc}")
+        print(f"* Global batch size: {config.training.global_train_batch_size}")
         print(f"* Non-embedding parameters: {non_emb_params_str}")
         print(f"* Trainable parameters: {trainable_params_str}")
         print(f"* Model dtype: {next(iter(model.parameters())).dtype}")
@@ -231,6 +236,8 @@ def main(config):
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
 
+    optimizer.zero_grad() # clear gradients
+
     with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
         for step in range(state.step, config.training.num_train_steps):
                 
@@ -253,21 +260,26 @@ def main(config):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
             loss, metrics = dist_trainer(batch)
 
-            (loss * config.loss.loss_scale).backward()
+            scaled_loss = (loss * config.loss.loss_scale) / config.training.train_grad_accum_steps # scale loss
+            scaled_loss.backward() # calculate gradients. they are accumulated (summed) if optimizer.zero_grad() is not called before each backward pass
 
-            if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
-                norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
-            else:
-                norm = FSDP.clip_grad_norm_(model, 1e6)
+            norm = None # default value for grad norm (in steps without optimizer update)
+            # update parameters after accumulating gradients
+            if (step + 1) % config.training.train_grad_accum_steps == 0:
+                # gradient clipping
+                if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
+                    norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
+                else:
+                    norm = FSDP.clip_grad_norm_(model, 1e6)
 
-            optimizer.step()
-            optimizer.zero_grad()
+                optimizer.step() # update parameters
+                optimizer.zero_grad() # clear gradients
 
-            batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
-            batch_flops = flops_per_batch * config.training.world_size
-            total_batch_size = batch["input_ids"].size(0) * config.training.world_size
-            state.total_tokens += batch_tokens
-            state.total_flops += batch_flops
+                batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size * config.training.train_grad_accum_steps
+                batch_flops = flops_per_batch * config.training.world_size * config.training.train_grad_accum_steps
+                total_batch_size = batch["input_ids"].size(0) * config.training.world_size * config.training.train_grad_accum_steps
+                state.total_tokens += batch_tokens
+                state.total_flops += batch_flops
 
             curr_time = time.time()
             step_time = curr_time - prev_time
