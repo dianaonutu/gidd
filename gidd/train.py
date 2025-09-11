@@ -197,8 +197,12 @@ def main(config):
         dist_trainer = opt_trainer
 
     # Gradient accumulation
-    device_train_batch_size = config.training.global_train_batch_size // config.training.world_size
-    train_grad_accum_steps = device_train_batch_size // config.training.train_batch_size
+    if config.training.global_train_batch_size:
+        device_train_batch_size = config.training.global_train_batch_size // config.training.world_size
+        train_grad_accum_steps = device_train_batch_size // config.training.train_batch_size
+    else:
+        config.training.global_train_batch_size = config.training.train_batch_size * config.training.world_size
+        train_grad_accum_steps = 0
 
     if is_main_process:
         non_emb_params_str = f"{non_emb_params / 1e6:.1f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.1f}B"
