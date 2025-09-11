@@ -13,7 +13,7 @@ import tqdm
 import wandb
 from omegaconf import OmegaConf, open_dict
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 import functools
 
@@ -35,6 +35,7 @@ from gidd.utils import (
     get_lr,
     parse_dtype,
     calculate_flops_per_batch,
+    get_fsdp_precision
 )
 
 
@@ -116,10 +117,12 @@ def main(config):
             else: 
                 auto_wrap_policy = None
 
+            strategy_name = config.training.fsdp_sharding_strategy
+            precision = get_fsdp_precision(config)
             model = FSDP(model,
                         auto_wrap_policy=auto_wrap_policy,
-                        sharding_strategy=config.training.fsdp_sharding_strategy,
-                        mixed_precision=config.training.fsdp_precision,
+                        sharding_strategy=getattr(ShardingStrategy, strategy_name),
+                        mixed_precision=precision,
                         limit_all_gathers=True,
                         device_id=torch.cuda.current_device()
                         )
@@ -194,8 +197,8 @@ def main(config):
         dist_trainer = opt_trainer
 
     # Gradient accumulation
-    config.training.device_train_batch_size = config.training.global_train_batch_size // config.training.world_size
-    config.training.train_grad_accum_steps = config.training.device_train_batch_size // config.training.train_batch_size
+    device_train_batch_size = config.training.global_train_batch_size // config.training.world_size
+    train_grad_accum_steps = device_train_batch_size // config.training.train_batch_size
 
     if is_main_process:
         non_emb_params_str = f"{non_emb_params / 1e6:.1f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.1f}B"
@@ -203,8 +206,8 @@ def main(config):
         print(f"*** Starting training ***")
         print(f"* World size: {world_size}")
         print(f"* FLOPS per batch: {flops_per_batch:.3g}")
-        print(f"* Per-device micro batch size: {config.training.train_microbatch_size}")
-        print(f"* Per-device gradient accumulation steps: {config.training.train_grad_acc}")
+        print(f"* Per-device micro batch size: {config.training.train_batch_size}")
+        print(f"* Per-device gradient accumulation steps: {train_grad_accum_steps}")
         print(f"* Global batch size: {config.training.global_train_batch_size}")
         print(f"* Non-embedding parameters: {non_emb_params_str}")
         print(f"* Trainable parameters: {trainable_params_str}")
@@ -260,12 +263,12 @@ def main(config):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
             loss, metrics = dist_trainer(batch)
 
-            scaled_loss = (loss * config.loss.loss_scale) / config.training.train_grad_accum_steps # scale loss
+            scaled_loss = (loss * config.loss.loss_scale) / train_grad_accum_steps # scale loss
             scaled_loss.backward() # calculate gradients. they are accumulated (summed) if optimizer.zero_grad() is not called before each backward pass
 
             norm = None # default value for grad norm (in steps without optimizer update)
             # update parameters after accumulating gradients
-            if (step + 1) % config.training.train_grad_accum_steps == 0:
+            if (step + 1) % train_grad_accum_steps == 0:
                 # gradient clipping
                 if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                     norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
@@ -275,32 +278,32 @@ def main(config):
                 optimizer.step() # update parameters
                 optimizer.zero_grad() # clear gradients
 
-                batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size * config.training.train_grad_accum_steps
-                batch_flops = flops_per_batch * config.training.world_size * config.training.train_grad_accum_steps
-                total_batch_size = batch["input_ids"].size(0) * config.training.world_size * config.training.train_grad_accum_steps
+                batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size * train_grad_accum_steps
+                batch_flops = flops_per_batch * config.training.world_size * train_grad_accum_steps
+                total_batch_size = batch["input_ids"].size(0) * config.training.world_size * train_grad_accum_steps
                 state.total_tokens += batch_tokens
                 state.total_flops += batch_flops
 
-            curr_time = time.time()
-            step_time = curr_time - prev_time
-            prev_time = curr_time
+                curr_time = time.time()
+                step_time = curr_time - prev_time
+                prev_time = curr_time
 
-            # no need to all_reduce metrics since these are not that important
-            log_buffer.append({
-                "train/loss": loss.item(),
-                "train/lr": curr_lr,
-                "train/step": step + 1,
-                "train/grad_norm": norm.item(),
-                "train/epoch": step / len(train_dl),
-                "train/total_tokens": state.total_tokens,
-                "train/total_flops": state.total_flops,
-                "train/tokens_per_sec": batch_tokens / step_time,
-                "train/flops_per_sec": batch_flops / step_time,
-                "train/samples_per_sec": total_batch_size / step_time,
-                "train/it_per_sec": 1 / step_time,
-                "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
-                **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
-            })
+                # no need to all_reduce metrics since these are not that important
+                log_buffer.append({
+                    "train/loss": loss.item(),
+                    "train/lr": curr_lr,
+                    "train/step": step + 1,
+                    "train/grad_norm": norm.item(),
+                    "train/epoch": step / len(train_dl),
+                    "train/total_tokens": state.total_tokens,
+                    "train/total_flops": state.total_flops,
+                    "train/tokens_per_sec": batch_tokens / step_time,
+                    "train/flops_per_sec": batch_flops / step_time,
+                    "train/samples_per_sec": total_batch_size / step_time,
+                    "train/it_per_sec": 1 / step_time,
+                    "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
+                    **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
+                })
 
             if ((step + 1) % config.logging.log_freq) == 0:
                 metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
