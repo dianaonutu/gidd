@@ -78,9 +78,9 @@ srun env -u CUDA_VISIBLE_DEVICES torchrun_jsc "${DISTRIBUTED_ARGS[@]}" \
   --master_port=$MASTER_PORT \
   -m gidd.train \
     --config-name=ar \
-    data.dataset_name: /p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT \
-    data.tokenizer_name: gpt2 \
-    data.cache_dir: /p/scratch/laionize/vettoruzzo1/.cache \
+    data.dataset_name=/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT \
+    data.tokenizer_name=gpt2 \
+    data.cache_dir=/p/scratch/laionize/vettoruzzo1/.cache \
     logging.wandb_project=gidd-ar \
     logging.run_name="$SLURM_JOB_NAME" \
     hydra.job.name="$SLURM_JOB_NAME"

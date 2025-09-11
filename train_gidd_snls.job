@@ -66,9 +66,9 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
         --config-name=gidd-fsdp \
-        data.dataset_name: /projects/0/prjs1502/datasets/FineWeb/raw \
-        data.tokenizer_name: gpt2 \
-        data.cache_dir: /scratch-shared/avettoruzzo/datasets \
+        data.dataset_name=/projects/0/prjs1502/datasets/FineWeb/raw \
+        data.tokenizer_name=gpt2 \
+        data.cache_dir=/scratch-shared/avettoruzzo/datasets \
         logging.wandb_project=gidd-gidd \
         logging.run_name="$SLURM_JOB_NAME" \
         hydra.job.name="$SLURM_JOB_NAME"

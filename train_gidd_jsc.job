@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=1B-gidd-fineweb-8gpu-2node-jsc-a100-8bs-fsdp
+#SBATCH --job-name=1B-gidd-fineweb-8gpu-2node-jsc-a100-8bs-fsdp2-gas
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=48
-#SBATCH --time=01:30:00
+#SBATCH --time=01:00:00
 #SBATCH --account=laionize
 #SBATCH --partition=develbooster
 #SBATCH --output=/p/project/laionize/vettoruzzo1_juwelsbooster/gidd/slurm_logs/%x-%j.out
@@ -77,10 +77,10 @@ srun env -u CUDA_VISIBLE_DEVICES torchrun_jsc "${DISTRIBUTED_ARGS[@]}" \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   -m gidd.train \
-    --config-name=gidd \
-    data.dataset_name: /p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT \
-    data.tokenizer_name: gpt2 \
-    data.cache_dir: /p/scratch/laionize/vettoruzzo1/.cache \
+    --config-name=gidd-fsdp \
+    data.dataset_name=/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT \
+    data.tokenizer_name=gpt2 \
+    data.cache_dir=/p/scratch/laionize/vettoruzzo1/.cache \
     logging.wandb_project=gidd-gidd \
     logging.run_name="$SLURM_JOB_NAME" \
     hydra.job.name="$SLURM_JOB_NAME"

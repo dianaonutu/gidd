@@ -53,9 +53,9 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
         --config-name=gidd \
-        data.dataset_name: /leonardo_work/AIFAC_L01_028/ggala000/raw/ \
-        data.tokenizer_name: /leonardo_work/AIFAC_L01_028/ggala000/tokenizers/models--gpt2/snapshots/607a30d783dfa663caf39e06633721c8d4cfcd7e \
-        data.cache_dir: /leonardo_scratch/large/userexternal/avettoru/.cache \
+        data.dataset_name=/leonardo_work/AIFAC_L01_028/ggala000/raw/ \
+        data.tokenizer_name=/leonardo_work/AIFAC_L01_028/ggala000/tokenizers/models--gpt2/snapshots/607a30d783dfa663caf39e06633721c8d4cfcd7e \
+        data.cache_dir=/leonardo_scratch/large/userexternal/avettoru/.cache \
         logging.wandb_project=gidd-gidd \
         logging.run_name="$SLURM_JOB_NAME" \
         hydra.job.name="$SLURM_JOB_NAME"
