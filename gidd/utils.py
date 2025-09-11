@@ -2,7 +2,7 @@ import re
 import math
 
 import torch
-
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision
 
 def parse_dtype(dtype):
     if dtype == "fp16":
@@ -32,6 +32,17 @@ def get_lr(config, lr, step):
     else:
         raise ValueError(f"Unknown learning rate schedule: {lr_schedule}")
 
+def get_fsdp_precision(config):
+    " Only for FSDP "
+    precision_name = config.training.fsdp_precision
+    if precision_name is None:
+                return None
+    elif precision_name.lower() == "mixed":
+        return MixedPrecision(param_dtype=parse_dtype(config.training.dtype),
+                              reduce_dtype=torch.float32,
+                              buffer_dtype=parse_dtype(config.training.dtype))
+    else:
+        raise ValueError(f"Unknown FSDP precision: {precision_name}")
 
 @torch.no_grad()
 def sample_categorical(probs, generator=None):
