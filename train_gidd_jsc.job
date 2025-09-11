@@ -77,7 +77,7 @@ srun env -u CUDA_VISIBLE_DEVICES torchrun_jsc "${DISTRIBUTED_ARGS[@]}" \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   -m gidd.train \
-    --config-name=gidd-fsdp \
+    --config-name=gidd \
     data.dataset_name=/p/home/jusers/vettoruzzo1/juwels/vettoruzzo1_juwelsbooster/datasets/FineWeb10BT \
     data.tokenizer_name=gpt2 \
     data.cache_dir=/p/scratch/laionize/vettoruzzo1/.cache \
