@@ -268,7 +268,7 @@ def main(config):
 
             norm = None # default value for grad norm (in steps without optimizer update)
             # update parameters after accumulating gradients
-            if (step + 1) % train_grad_accum_steps == 0:
+            if train_grad_accum_steps== 0 or (step + 1) % train_grad_accum_steps == 0:
                 # gradient clipping
                 if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                     norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
