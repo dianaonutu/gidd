@@ -2,7 +2,9 @@ import re
 import math
 
 import torch
+import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision
+
 
 def parse_dtype(dtype):
     if dtype == "fp16":
@@ -90,3 +92,19 @@ def calculate_flops_per_batch(config, model, vocab_size, non_emb_params=None, me
         raise ValueError(f"Unknown method: {method}")
     flops_per_batch = flops_per_sample * config.training.train_batch_size
     return flops_per_batch
+
+
+def get_nbr_trainable_params(trainer):
+
+    def get_global_param_count(module):
+        local_count = sum(p.numel() for p in module.parameters() if p.requires_grad )
+        device = next(module.parameters()).device
+        t = torch.tensor(local_count, device=device, dtype=torch.long)
+        dist.all_reduce(t, op=dist.ReduceOp.SUM)
+        return int(t.item())
+
+    if isinstance(trainer.model, FSDP):
+        trainable_params = get_global_param_count(trainer)
+    else:
+        trainable_params = sum(p.numel() for p in trainer.parameters() if p.requires_grad)
+    return trainable_params

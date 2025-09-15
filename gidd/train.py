@@ -35,7 +35,8 @@ from gidd.utils import (
     get_lr,
     parse_dtype,
     calculate_flops_per_batch,
-    get_fsdp_precision
+    get_fsdp_precision,
+    get_nbr_trainable_params
 )
 
 
@@ -109,6 +110,11 @@ def main(config):
         tokenizer = get_tokenizer(config)
         model = get_model(config, tokenizer, dtype=dtype)
 
+        if isinstance(model, DIT):
+            non_emb_params = sum(p.numel() for p in model.blocks.parameters())
+        else:  # Llama
+            non_emb_params = sum(p.numel() for p in model.model.layers.parameters())
+
         if config.training.fsdp:
             if is_main_process:
                 print("Wrapping model with FSDP")
@@ -126,9 +132,6 @@ def main(config):
                         limit_all_gathers=True,
                         device_id=torch.cuda.current_device()
                         )
-            
-        if is_main_process:
-            print(f"Model: {model}")
 
         noise_schedule = get_noise_schedule(config, tokenizer)
         loss_fn = get_loss(config, tokenizer, noise_schedule)
@@ -171,15 +174,9 @@ def main(config):
         wandb.config.update({"pwd": pwd})
         print(f"Working directory: {pwd}")
 
-    base_model = model.module if isinstance(model, FSDP) else model
-    if isinstance(base_model, DIT):
-        non_emb_params = sum(p.numel() for p in base_model.blocks.parameters())
-    else:  # Llama
-        non_emb_params = sum(p.numel() for p in base_model.model.layers.parameters())
+    trainable_params = get_nbr_trainable_params(trainer)
 
     flops_per_batch = calculate_flops_per_batch(config, model, len(tokenizer), non_emb_params, method="hoffmann")
-
-    trainable_params = sum(p.numel() for p in trainer.parameters() if p.requires_grad)
 
     if config.training.compile_model:
         if isinstance(trainer.model, FSDP): #avoid compiling when using FSDP
@@ -202,11 +199,11 @@ def main(config):
         train_grad_accum_steps = device_train_batch_size // config.training.train_batch_size
     else:
         config.training.global_train_batch_size = config.training.train_batch_size * config.training.world_size
-        train_grad_accum_steps = 0
+        train_grad_accum_steps = 1
 
     if is_main_process:
-        non_emb_params_str = f"{non_emb_params / 1e6:.1f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.1f}B"
-        trainable_params_str = f"{trainable_params / 1e6:.1f}M" if trainable_params < 500 * 1e6 else f"{trainable_params / 1e9:.1f}B"
+        non_emb_params_str = f"{non_emb_params / 1e6:.2f}M" if non_emb_params < 500 * 1e6 else f"{non_emb_params / 1e9:.2f}B"
+        trainable_params_str = f"{trainable_params / 1e6:.2f}M" if trainable_params < 500 * 1e6 else f"{trainable_params / 1e9:.2f}B"
         print(f"*** Starting training ***")
         print(f"* World size: {world_size}")
         print(f"* FLOPS per batch: {flops_per_batch:.3g}")
@@ -272,7 +269,7 @@ def main(config):
 
             norm = None # default value for grad norm (in steps without optimizer update)
             # update parameters after accumulating gradients
-            if train_grad_accum_steps== 0 or (step + 1) % train_grad_accum_steps == 0:
+            if (step + 1) % train_grad_accum_steps == 0:
                 # gradient clipping
                 if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                     norm = FSDP.clip_grad_norm_(model, config.optimizer.grad_clip_norm)
