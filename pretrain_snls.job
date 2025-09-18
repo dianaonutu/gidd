@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=scalability_test
 #SBATCH --partition=gpu_a100
-#SBATCH --time=1:00:00
-#SBATCH --nodes=2
+#SBATCH --time=20:00
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
-#SBATCH --cpus-per-task=72  # 72 for a100, 64 for h100
-#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=64      # 72 for a100, 64 for h100
+#SBATCH --gpus-per-node=1
 #SBATCH --output=/scratch-shared/donutu1/logs/slurm_logs/%j.out
 
 # Usage:
@@ -16,17 +16,7 @@ set -euo pipefail
 
 
 # -----------------------------
-# MODEL CONFIGS
-# -----------------------------
-MODEL=gidd          # options: gidd, ar or mdlm
-MODEL_TYPE=-pu0.0   # options: -pu0.0, or none if ar or mdlm
-MODEL_SIZE=1B       # options: 1B, small, base, tiny
-DATASET=fineweb
-MBS=8               # previously, mbs=8
-CL=-1024cl          # Context length. previously 512
-
-# -----------------------------
-# SOFTWARE
+# SOFTWARE - SERVER SPECIFIC
 # -----------------------------
 module purge
 module load 2024 Python/3.12.3-GCCcore-13.3.0 NCCL/2.22.3-GCCcore-13.3.0-CUDA-12.6.0
@@ -35,19 +25,81 @@ source $VENV_PATH/bin/activate
 
 
 # -----------------------------
+# EXPERIMENT CONFIGS
+# -----------------------------
+WDIR="/scratch-shared/donutu1/logs" # Machine specific
+MODEL=gidd      # options: gidd, gidd-pu0.2, gidd-pu0.1, ar or mdlm
+MODEL_SIZE=small     # options: 1B, small, base, tiny
+DATASET=fineweb
+MBS=32               
+GBS=                 # Global batch size. If not set, it will be MBS * total gpus.    
+SL=512               # Sequence length. initial: 512, options: 1024, 2048, 4096
+GAS=                 # Gradient accumulation steps.
+TRAIN_STEPS=2000
+
+# TODO: Add config for "tiny" model size
+if [ "$MODEL_SIZE" == "small" ]; then
+    N_PARAMS="0.17"
+elif [ "$MODEL_SIZE" == "base" ]; then
+    N_PARAMS="0.42"
+elif [ "$MODEL_SIZE" == "1B" ]; then
+    N_PARAMS="1.50"
+else
+    echo "Unknown MODEL_SIZE: $MODEL_SIZE"
+    exit 1
+fi
+
+
+# -----------------------------
 # DISTRIBUTED TRAINING
 # -----------------------------
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+# Only for JSC machines:
+if [ -n "${SYSTEMNAME-}" ] && \
+   { [ "$SYSTEMNAME" = juwelsbooster ] ||
+     [ "$SYSTEMNAME" = juwels ] ||
+     [ "$SYSTEMNAME" = jurecadc ] ||
+     [ "$SYSTEMNAME" = jusuf ]; }; then
+    # Usage of InfiniBand interface is not automatic.
+    # To allow communication over InfiniBand cells on JSC machines append "i" to the hostname.
+    MASTER_ADDR="${MASTER_ADDR}i"
+fi
 export MASTER_PORT=39591
 
 TOTAL_GPUS=$((SLURM_NNODES * SLURM_GPUS_PER_NODE))
-GPU_TYPE=$(grep "^#SBATCH --partition=" pretrain_snls.job | grep -oP '(?<=gpu_)\w+')
-
 DISTRIBUTED_ARGS=(
     --nproc-per-node $SLURM_GPUS_PER_NODE 
     --nnodes $SLURM_NNODES
 )
 
+# Known issue on Snellius. NCCL sometimes hangs during initialization.
+# Workaround: set NCCL_SOCKET_IFNAME to the ethernet interface for initialization.
+if [ "$SLURM_JOB_PARTITION" == "gpu_h100" ]; then
+    echo "Using H100 partition on Snellius, setting NCCL_SOCKET_IFNAME to eno2np0"
+    export NCCL_SOCKET_IFNAME="eno2np0"
+    SERVER="SNLSh"
+
+elif [ "$SLURM_JOB_PARTITION" == "gpu_a100" ]; then
+    echo "Using A100 partition on Snellius, setting NCCL_SOCKET_IFNAME to eno1np0"
+    export NCCL_SOCKET_IFNAME="eno1np0"
+    SERVER="SNLSa"
+
+elif [[ -n "$SYSTEMNAME" && "$SYSTEMNAME" = juwelsbooster ]]; then
+    echo "Using Juwels booster partition, setting GLOO_SOCKET_IFNAME to ib0"
+    # Prevent Gloo not being able to communicate.
+    export GLOO_SOCKET_IFNAME=ib0
+    # Code works without this as well
+    # export NCCL_SOCKET_IFNAME=ib0
+    SERVER="JSC"
+
+    # Note from https://apps.fz-juelich.de/jsc/hps/juwels/gpu-computing.html#gpu-visibility-affinity
+    export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+    # Found as example here: https://apps.fz-juelich.de/jsc/hps/juwels/batchsystem.html#writing-a-batch-script
+    # export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}    # gives error: libgomp: Invalid value for environment variable OMP_NUM_THREADS: 
+fi  
+
+# For debugging:
 # 1. Check if the nodes establish connection
 # 2. Check if you see NCCL WARN NET/Socket : Socket failure, then you need to export NCCL_SOCKET_IFNAME=ib0
 # 3. Check if you see something like (below). Then, you know that InfiniBand interface is used.
@@ -55,19 +107,28 @@ DISTRIBUTED_ARGS=(
 # jwb0117:378073:378219 [2] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [2]mlx5_2:1/IB [3]mlx5_3:1/IB [RO]; OOB ib0:10.13.23.95<0>
 # export NCCL_DEBUG=INFO
 
+
 # -----------------------------
 # Logging
 # -----------------------------
-WDIR="/scratch-shared/donutu1/logs"
+SL_NAME=""
+GAS_NAME=""
+if [ -n "$SL" ]; then
+    SL_NAME="-${SL}sl"
+fi
+if [ -n "$GAS" ]; then
+    GAS_NAME="-${GAS}gas"
+fi
+
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
-JOB_NAME="${MODEL_SIZE}-${MODEL}${MODEL_TYPE}-${DATASET}-${TOTAL_GPUS}gpu-${SLURM_NNODES}node-snls-${GPU_TYPE}-${MBS}mbs${CL}-job${SLURM_JOB_ID}"
+JOB_NAME="${SERVER}-${SLURM_JOB_ID}-${N_PARAMS}B-${TOTAL_GPUS}gpu-${MBS}mbs-${DATASET}-${MODEL}${SL_NAME}${GAS_NAME}"
 HYDRA_RUN_DIR=${WDIR}/${TIMESTAMP}_${JOB_NAME}
 mkdir -p "$HYDRA_RUN_DIR"
 
 {
     echo "Job started at: $(date)"
     echo "Job ID: ${SLURM_JOB_ID}"
-    echo "GPU type: ${GPU_TYPE}"
+    echo "GPU type: ${SLURM_JOB_PARTITION}"
     echo "GPUs per node: ${SLURM_GPUS_PER_NODE}"
     echo "Total nodes: ${SLURM_NNODES}"
     echo "Total GPUs: ${TOTAL_GPUS}"
@@ -77,12 +138,20 @@ mkdir -p "$HYDRA_RUN_DIR"
     scontrol show hostnames $SLURM_JOB_NODELIST
 
 } > "${HYDRA_RUN_DIR}/cluster_allocation.log"
-
 echo "Cluster allocation info saved to ${HYDRA_RUN_DIR}/cluster_allocation.log"
 
 
+# TODO: Add condition for Leonardo
+if [ -n "${SYSTEMNAME-}" ] && [ "${SYSTEMNAME-}" = "juwels" ]; then
+    export WANDB_MODE=offline
+elif [ -n "${SLURM_JOB_PARTITION-}" ] && \
+     { [ "${SLURM_JOB_PARTITION-}" = "gpu_h100" ] || [ "${SLURM_JOB_PARTITION-}" = "gpu_a100" ]; }; then
+    export WANDB_MODE=online
+fi
+
+
 # -----------------------------
-# Launch training
+# Launch training - SERVER SPECIFIC
 # -----------------------------
 srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --rdzv_id=$SLURM_JOBID \
@@ -92,5 +161,14 @@ srun torchrun "${DISTRIBUTED_ARGS[@]}" \
     --master_port=$MASTER_PORT \
     gidd/train.py \
     --config-name=$MODEL \
+    data.dataset_name=/projects/0/prjs1502/datasets/FineWeb/raw \
+    data.tokenizer_name=gpt2 \
+    data.cache_dir=/scratch-shared/donutu1/hf_cache \
+    model.max_seq_len=$SL \
+    logging.wandb_project=gidd-gidd \
     logging.run_name="${JOB_NAME}" \
+    model=$MODEL_SIZE \
+    training.train_batch_size=$MBS \
+    training.eval_batch_size=$MBS \
+    training.num_train_steps=$TRAIN_STEPS \
     hydra.run.dir="${HYDRA_RUN_DIR}" \
