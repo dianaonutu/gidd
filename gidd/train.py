@@ -202,132 +202,110 @@ def main(config):
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
 
-    with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
-        for step in range(state.step, config.training.num_train_steps):
-                
-            ### TRAIN ###
+    
+    base_logdir = os.path.expanduser("./gidd_logs")
+    os.makedirs(base_logdir, exist_ok=True)
 
-            try:
-                batch = next(batch_iterator)
-            except StopIteration:
-                state.epoch += 1
-                state.epoch_start_step = step
-                if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
-                    train_dl.sampler.set_epoch(state.epoch)
-                batch_iterator = iter(train_dl)
-                batch = next(batch_iterator)
+    logdir = os.path.join(base_logdir, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(logdir, exist_ok=True)
 
-            curr_lr = get_lr(config, max_lr, step)
-            for param_group in optimizer.param_groups:
-                param_group["lr"] = curr_lr
+    print(f"Profiler logs will be saved to: {logdir}")
 
-            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-            loss, metrics = ddp_trainer(batch)
+    ### PROFILE TRAINING ###
+    WAIT, WARMUP, ACTIVE, REPEAT = 10, 11, 20, 2
 
-            (loss * config.loss.loss_scale).backward()
+    # Create a torch.profiler.profile object, and call it as the last part of the training loop
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA
+        ],
+        schedule=torch.profiler.schedule(
+            wait=WAIT,
+            warmup=WARMUP,
+            active=ACTIVE,
+            repeat=REPEAT
+        ),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(logdir, worker_name='worker0'),
+        record_shapes=True,
+        profile_memory=True,  # This will take 1 to 2 minutes. Setting it to False could greatly speedup.
+        with_stack=True
+    ) as p:
 
-            if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
-            else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
+        with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
+        
+            for step in range(state.step, config.training.num_train_steps):
 
-            optimizer.step()
-            optimizer.zero_grad()
+                ### TRAIN ###
 
-            batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
-            batch_flops = flops_per_batch * config.training.world_size
-            total_batch_size = batch["input_ids"].size(0) * config.training.world_size
-            state.total_tokens += batch_tokens
-            state.total_flops += batch_flops
+                try:
+                    batch = next(batch_iterator)
+                except StopIteration:
+                    state.epoch += 1
+                    state.epoch_start_step = step
+                    if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
+                        train_dl.sampler.set_epoch(state.epoch)
+                    batch_iterator = iter(train_dl)
+                    batch = next(batch_iterator)
 
-            curr_time = time.time()
-            step_time = curr_time - prev_time
-            prev_time = curr_time
+                curr_lr = get_lr(config, max_lr, step)
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = curr_lr
 
-            # no need to all_reduce metrics since these are not that important
-            log_buffer.append({
-                "train/loss": loss.item(),
-                "train/lr": curr_lr,
-                "train/step": step + 1,
-                "train/grad_norm": norm.item(),
-                "train/epoch": step / len(train_dl),
-                "train/total_tokens": state.total_tokens,
-                "train/total_flops": state.total_flops,
-                "train/tokens_per_sec": batch_tokens / step_time,
-                "train/flops_per_sec": batch_flops / step_time,
-                "train/samples_per_sec": total_batch_size / step_time,
-                "train/it_per_sec": 1 / step_time,
-                "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
-                **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
-            })
+                batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+                loss, metrics = ddp_trainer(batch)
 
-            if ((step + 1) % config.logging.log_freq) == 0:
-                metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
-                logger.log({k: v for k, v in metrics.items()}, step=step)
-                logger.log({"trainer/global_step": step}, step=step)
-                log_buffer = []
+                (loss * config.loss.loss_scale).backward()
 
-            ### EVAL ###
+                if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
+                else:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
 
-            if ((step + 1) % config.logging.eval_freq) == 0:
-                with torch.no_grad():
-                    eval_start_time = time.time()
-                    model.eval()
+                optimizer.step()
+                optimizer.zero_grad()
 
-                    eval_metrics = {}
-                    eval_loss = 0
-                    num_eval_samples = 0
+                batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
+                batch_flops = flops_per_batch * config.training.world_size
+                total_batch_size = batch["input_ids"].size(0) * config.training.world_size
+                state.total_tokens += batch_tokens
+                state.total_flops += batch_flops
 
-                    if len(test_dl) <config.logging.num_eval_batches:
-                        total_eval_batches = len(test_dl)
-                    else:
-                        total_eval_batches = config.logging.num_eval_batches
-                        
-                    for i, test_batch in enumerate(tqdm.tqdm(test_dl, desc="Eval", dynamic_ncols=True, total=total_eval_batches, disable=not is_main_process)):
-                        bs = test_batch["input_ids"].size(0)
+                curr_time = time.time()
+                step_time = curr_time - prev_time
+                prev_time = curr_time
 
-                        test_batch = {k: v.to(device, non_blocking=True) for k, v in test_batch.items()}
-                        loss, metrics = ddp_trainer(test_batch)
+                # no need to all_reduce metrics since these are not that important
+                log_buffer.append({
+                    "train/loss": loss.item(),
+                    "train/lr": curr_lr,
+                    "train/step": step + 1,
+                    "train/grad_norm": norm.item(),
+                    "train/epoch": step / len(train_dl),
+                    "train/total_tokens": state.total_tokens,
+                    "train/total_flops": state.total_flops,
+                    "train/tokens_per_sec": batch_tokens / step_time,
+                    "train/flops_per_sec": batch_flops / step_time,
+                    "train/samples_per_sec": total_batch_size / step_time,
+                    "train/it_per_sec": 1 / step_time,
+                    "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
+                    **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
+                })
 
-                        for k, v in metrics.items():
-                            eval_metrics[k] = eval_metrics.get(k, 0) + (v.item() if isinstance(v, torch.Tensor) else v) * bs
+                if ((step + 1) % config.logging.log_freq) == 0:
+                    metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
+                    logger.log({k: v for k, v in metrics.items()}, step=step)
+                    logger.log({"trainer/global_step": step}, step=step)
+                    log_buffer = []
 
-                        eval_loss += loss.item() * bs
-                        num_eval_samples += bs
-
-                        if i >= config.logging.num_eval_batches - 1:
-                            break
-
-                    for key in ["nll", "ppl"]:
-                        if key in eval_metrics:
-                            del eval_metrics[key]
-
-                    dist.barrier()
-
-                    eval_elapsed_time = time.time() - eval_start_time
-                    logger.log({
-                        "eval/loss": eval_loss / num_eval_samples,
-                        "eval/time_taken": eval_elapsed_time,
-                        **{f"eval/{k}": v / num_eval_samples for k, v in eval_metrics.items()},
-                    }, step=step)
-                    model.train()
-
-            ### SAVE ###
-
-            # increment step before saving so that resuming from the checkpoint will start at the next step
-            state.step += 1
-            if ((step + 1) % config.logging.save_freq) == 0:
-                dist.barrier()
-                output_path = Path(config.logging.save_dir, "latest")
-                if is_main_process:
-                    save_checkpoint(output_path, trainer, optimizer, state)
-                dist.barrier()
-                output_path.mkdir(exist_ok=True, parents=True)
-                save_rng_state(output_path, global_rank)
-                dist.barrier()
-
-            pbar.update(1)
-
+                p.step()
+                pbar.update(1)
+    
+                if step == (WAIT + WARMUP + ACTIVE) * REPEAT:
+                    print("Exiting profiler early")
+                    p.stop()  # stop profiler cleanly
+                    break
+    
     if is_distributed:
         dist.destroy_process_group()
 
