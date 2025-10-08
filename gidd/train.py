@@ -204,20 +204,20 @@ def main(config):
 
 
     ### PROFILE TRAINING ###
-    # # All ranks need to allocate a list of one element
-    # trace_dir_list = [None]
-    # if is_main_process:
-    #     # Let rank 0 decide the directory name
-    #     now = datetime.datetime.now()
-    #     trace_dir_list[0] = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
-        
-    # # Broadcast the directory path to all ranks
-    # dist.broadcast_object_list(trace_dir_list, src=0)
+    # Initialize trace_dir outside the conditional block
+    with main_process_first():
+        if is_main_process:
+            now = datetime.datetime.now()
+            trace_dir = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
+            os.makedirs(trace_dir, exist_ok=True)
 
-    # # Use the same trace_dir on all ranks
-    # trace_dir = trace_dir_list[0]
-    now = datetime.datetime.now()
-    trace_dir = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
+    if is_distributed:
+        obj_list = [trace_dir if is_main_process else None]
+        dist.broadcast_object_list(obj_list, src=0)
+        trace_dir = obj_list[0]
+
+    # now = datetime.datetime.now()
+    # trace_dir = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
     
     WAIT, WARMUP, ACTIVE, REPEAT = 20, 20, 10, 1
     
@@ -313,7 +313,8 @@ def main(config):
             pbar.update(1)
             prof.step() # Need to call this at each step to notify profiler of steps' boundary.
             if step >= (WAIT + WARMUP + ACTIVE) * REPEAT -1:
-                print("Exiting profiler early")
+                if is_main_process:
+                    print("Exiting profiler early")
                 break
     
     prof.stop()      # Stop profiler
