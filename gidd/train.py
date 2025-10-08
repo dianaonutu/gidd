@@ -202,9 +202,25 @@ def main(config):
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
 
-    ### PROFILE TRAINING ###
-    WAIT, WARMUP, ACTIVE, REPEAT = 10, 10, 20, 1
 
+    ### PROFILE TRAINING ###
+    # # All ranks need to allocate a list of one element
+    # trace_dir_list = [None]
+    # if is_main_process:
+    #     # Let rank 0 decide the directory name
+    #     now = datetime.datetime.now()
+    #     trace_dir_list[0] = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
+        
+    # # Broadcast the directory path to all ranks
+    # dist.broadcast_object_list(trace_dir_list, src=0)
+
+    # # Use the same trace_dir on all ranks
+    # trace_dir = trace_dir_list[0]
+    now = datetime.datetime.now()
+    trace_dir = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
+    
+    WAIT, WARMUP, ACTIVE, REPEAT = 20, 20, 10, 1
+    
     # Create a torch.profiler.profile object, and call it as the last part of the training loop
     prof = torch.profiler.profile(
         activities=[
@@ -217,20 +233,19 @@ def main(config):
             active=ACTIVE,
             repeat=REPEAT
         ),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler("/projects/0/prjs1502/gidd/profiler_logs/", worker_name='worker0'),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(
+            trace_dir, 
+            worker_name=f'worker_{dist.get_rank()}', 
+            use_gzip=True),
         record_shapes=True,
         profile_memory=True,  # This will take 1 to 2 minutes. Setting it to False could greatly speedup.
         with_stack=False
     )
-    prof.start()
+
+    prof.start()    # Start profiler
     with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
     
         for step in range(state.step, config.training.num_train_steps):
-
-            prof.step() # Need to call this at each step to notify profiler of steps' boundary.
-            if step >= (WAIT + WARMUP + ACTIVE) * REPEAT -1:
-                print("Exiting profiler early")
-                break
             
             ### TRAIN ###
 
@@ -296,8 +311,13 @@ def main(config):
 
             
             pbar.update(1)
+            prof.step() # Need to call this at each step to notify profiler of steps' boundary.
+            if step >= (WAIT + WARMUP + ACTIVE) * REPEAT -1:
+                print("Exiting profiler early")
+                break
     
-    prof.stop()      
+    prof.stop()      # Stop profiler
+    ### END PROFILE TRAINING ###
 
     if is_distributed:
         dist.destroy_process_group()
