@@ -10,4 +10,5 @@ wandb
 logs
 cache
 .ipynb_checkpoints
-gidd/configs/
+gidd/configs
+profiler_logs
