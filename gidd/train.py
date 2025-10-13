@@ -216,13 +216,20 @@ def main(config):
         dist.broadcast_object_list(obj_list, src=0)
         trace_dir = obj_list[0]
 
-    # now = datetime.datetime.now()
-    # trace_dir = f"/projects/0/prjs1502/gidd/profiler_logs/{now.strftime('%Y_%m_%d_%H_%M_%S')}/"
-    
     WAIT, WARMUP, ACTIVE, REPEAT = 20, 20, 10, 1
+
+    if is_main_process:
+        trace_handler = torch.profiler.tensorboard_trace_handler(
+        trace_dir,
+        worker_name=f'worker_{dist.get_rank()}',
+        use_gzip=True
+        )
+    else:
+        trace_handler = None  # non-main ranks skip profiling
     
-    # Create a torch.profiler.profile object, and call it as the last part of the training loop
-    prof = torch.profiler.profile(
+    print("No problem with the tensors before the start of the profiler!")
+
+    with torch.profiler.profile(
         activities=[
             torch.profiler.ProfilerActivity.CPU,
             torch.profiler.ProfilerActivity.CUDA
@@ -233,93 +240,92 @@ def main(config):
             active=ACTIVE,
             repeat=REPEAT
         ),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(
-            trace_dir, 
-            worker_name=f'worker_{dist.get_rank()}', 
-            use_gzip=True),
+        on_trace_ready=trace_handler if is_main_process else None,
         record_shapes=True,
-        profile_memory=True,  # This will take 1 to 2 minutes. Setting it to False could greatly speedup.
-        with_stack=False
-    )
+        profile_memory=True,
+        with_stack=False # if True causes: RuntimeError: stack.size() INTERNAL ASSERT FAILED  
+    ) as prof:
 
-    prof.start()    # Start profiler
-    with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
+        with tqdm.tqdm(total=config.training.num_train_steps, initial=state.step, desc="Training", dynamic_ncols=True, disable=not is_main_process) as pbar:
+        
+            for step in range(state.step, config.training.num_train_steps):
+                
+                ### TRAIN ###
+
+                try:
+                    batch = next(batch_iterator)
+                except StopIteration:
+                    state.epoch += 1
+                    state.epoch_start_step = step
+                    if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
+                        train_dl.sampler.set_epoch(state.epoch)
+                    batch_iterator = iter(train_dl)
+                    batch = next(batch_iterator)
+
+                curr_lr = get_lr(config, max_lr, step)
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = curr_lr
+
+                if step == 0:
+                    print("No problem with the tensors before the first training step!")
+
+                batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+                loss, metrics = ddp_trainer(batch)
+
+                if step == 0:
+                    print("No problem with the tensors after the first training step, before backprop!")
+
+                (loss * config.loss.loss_scale).backward()
+
+                if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
+                else:
+                    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
+
+                optimizer.step()
+                optimizer.zero_grad()
+
+                batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
+                batch_flops = flops_per_batch * config.training.world_size
+                total_batch_size = batch["input_ids"].size(0) * config.training.world_size
+                state.total_tokens += batch_tokens
+                state.total_flops += batch_flops
+
+                curr_time = time.time()
+                step_time = curr_time - prev_time
+                prev_time = curr_time
+
+                # no need to all_reduce metrics since these are not that important
+                log_buffer.append({
+                    "train/loss": loss.item(),
+                    "train/lr": curr_lr,
+                    "train/step": step + 1,
+                    "train/grad_norm": norm.item(),
+                    "train/epoch": step / len(train_dl),
+                    "train/total_tokens": state.total_tokens,
+                    "train/total_flops": state.total_flops,
+                    "train/tokens_per_sec": batch_tokens / step_time,
+                    "train/flops_per_sec": batch_flops / step_time,
+                    "train/samples_per_sec": total_batch_size / step_time,
+                    "train/it_per_sec": 1 / step_time,
+                    "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
+                    **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
+                })
+
+                if ((step + 1) % config.logging.log_freq) == 0:
+                    metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
+                    logger.log({k: v for k, v in metrics.items()}, step=step)
+                    logger.log({"trainer/global_step": step}, step=step)
+                    log_buffer = []
+
+                
+                pbar.update(1)
+                prof.step() # Need to call this at each step to notify profiler of steps' boundary.
+                if step >= (WAIT + WARMUP + ACTIVE) * REPEAT -1:
+                    if is_main_process:
+                        print("Exiting profiler early")
+                    break
     
-        for step in range(state.step, config.training.num_train_steps):
-            
-            ### TRAIN ###
-
-            try:
-                batch = next(batch_iterator)
-            except StopIteration:
-                state.epoch += 1
-                state.epoch_start_step = step
-                if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
-                    train_dl.sampler.set_epoch(state.epoch)
-                batch_iterator = iter(train_dl)
-                batch = next(batch_iterator)
-
-            curr_lr = get_lr(config, max_lr, step)
-            for param_group in optimizer.param_groups:
-                param_group["lr"] = curr_lr
-
-            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-            loss, metrics = ddp_trainer(batch)
-
-            (loss * config.loss.loss_scale).backward()
-
-            if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
-            else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
-
-            optimizer.step()
-            optimizer.zero_grad()
-
-            batch_tokens = batch["attention_mask"].sum().item() * config.training.world_size
-            batch_flops = flops_per_batch * config.training.world_size
-            total_batch_size = batch["input_ids"].size(0) * config.training.world_size
-            state.total_tokens += batch_tokens
-            state.total_flops += batch_flops
-
-            curr_time = time.time()
-            step_time = curr_time - prev_time
-            prev_time = curr_time
-
-            # no need to all_reduce metrics since these are not that important
-            log_buffer.append({
-                "train/loss": loss.item(),
-                "train/lr": curr_lr,
-                "train/step": step + 1,
-                "train/grad_norm": norm.item(),
-                "train/epoch": step / len(train_dl),
-                "train/total_tokens": state.total_tokens,
-                "train/total_flops": state.total_flops,
-                "train/tokens_per_sec": batch_tokens / step_time,
-                "train/flops_per_sec": batch_flops / step_time,
-                "train/samples_per_sec": total_batch_size / step_time,
-                "train/it_per_sec": 1 / step_time,
-                "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
-                **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
-            })
-
-            if ((step + 1) % config.logging.log_freq) == 0:
-                metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
-                logger.log({k: v for k, v in metrics.items()}, step=step)
-                logger.log({"trainer/global_step": step}, step=step)
-                log_buffer = []
-
-            
-            pbar.update(1)
-            prof.step() # Need to call this at each step to notify profiler of steps' boundary.
-            if step >= (WAIT + WARMUP + ACTIVE) * REPEAT -1:
-                if is_main_process:
-                    print("Exiting profiler early")
-                break
-    
-    prof.stop()      # Stop profiler
-    ### END PROFILE TRAINING ###
-
     if is_distributed:
         dist.destroy_process_group()
 
