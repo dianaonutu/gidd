@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=scalability_test
+#SBATCH --job-name=code_profiling
 #SBATCH --partition=gpu_a100
-#SBATCH --time=20:00
+#SBATCH --time=40:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1     # Let torchrun handle the GPUs
-#SBATCH --cpus-per-task=64      # 72 for a100, 64 for h100
+#SBATCH --cpus-per-task=18      # 72 for a100, 64 for h100
 #SBATCH --gpus-per-node=1
 #SBATCH --output=/scratch-shared/donutu1/logs/slurm_logs/%j.out
 
@@ -27,15 +27,15 @@ source $VENV_PATH/bin/activate
 # -----------------------------
 # EXPERIMENT CONFIGS
 # -----------------------------
-WDIR="/scratch-shared/donutu1/logs" # Machine specific
+WDIR="/scratch-shared/donutu1/logs" # Project specific
 MODEL=gidd      # options: gidd, gidd-pu0.2, gidd-pu0.1, ar or mdlm
-MODEL_SIZE=small     # options: 1B, small, base, tiny
+MODEL_SIZE=1B     # options: 1B, small, base, tiny
 DATASET=fineweb
-MBS=32               
-GBS=                 # Global batch size. If not set, it will be MBS * total gpus.    
-SL=512               # Sequence length. initial: 512, options: 1024, 2048, 4096
+MBS=2               
+GBS=            # Global batch size. If not set, it will be MBS * total gpus.    
+SL=4096               # Sequence length. initial: 512, options: 1024, 2048, 4096
 GAS=                 # Gradient accumulation steps.
-TRAIN_STEPS=2000
+TRAIN_STEPS=500
 
 # TODO: Add config for "tiny" model size
 if [ "$MODEL_SIZE" == "small" ]; then
@@ -48,6 +48,9 @@ else
     echo "Unknown MODEL_SIZE: $MODEL_SIZE"
     exit 1
 fi
+
+
+
 
 
 # -----------------------------
@@ -148,6 +151,9 @@ elif [ -n "${SLURM_JOB_PARTITION-}" ] && \
      { [ "${SLURM_JOB_PARTITION-}" = "gpu_h100" ] || [ "${SLURM_JOB_PARTITION-}" = "gpu_a100" ]; }; then
     export WANDB_MODE=online
 fi
+
+
+# export TORCH_LOGS="dynamic"
 
 
 # -----------------------------
