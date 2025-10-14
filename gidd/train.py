@@ -108,38 +108,9 @@ def main(config):
 
     if config.training.resume is None:
         tokenizer = get_tokenizer(config)
-        model = get_model(config, tokenizer, dtype=dtype)
-
-        if isinstance(model, DIT):
-            non_emb_params = sum(p.numel() for p in model.blocks.parameters())
-        else:  # Llama
-            non_emb_params = sum(p.numel() for p in model.model.layers.parameters())
-
-        if config.training.fsdp:
-            if is_main_process:
-                print("Wrapping model with FSDP")
-            if config.training.wrapping_strategy:
-                auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1_000_000)
-            else: 
-                auto_wrap_policy = None
-
-            strategy_name = config.training.fsdp_sharding_strategy
-            precision = get_fsdp_precision(config)
-            model = FSDP(model,
-                        auto_wrap_policy=auto_wrap_policy,
-                        sharding_strategy=getattr(ShardingStrategy, strategy_name),
-                        mixed_precision=precision,
-                        limit_all_gathers=True,
-                        device_id=torch.cuda.current_device()
-                        )
-
         noise_schedule = get_noise_schedule(config, tokenizer)
         loss_fn = get_loss(config, tokenizer, noise_schedule)
-        trainer = get_trainer(config, model, tokenizer, noise_schedule, loss_fn, dtype)
-        trainer = trainer.to(device)
-
-        optimizer = get_optimizer(config, trainer)
-
+        
         state = TrainingState(
             epoch=0,
             epoch_start_step=0,
@@ -173,16 +144,46 @@ def main(config):
         pwd = Path(".").resolve()
         wandb.config.update({"pwd": pwd})
         print(f"Working directory: {pwd}")
+    
+    model = get_model(config, tokenizer, dtype=dtype)
+
+    if isinstance(model, DIT):
+        non_emb_params = sum(p.numel() for p in model.blocks.parameters())
+    else:  # Llama
+        non_emb_params = sum(p.numel() for p in model.model.layers.parameters())
+    
+    if config.training.fsdp:
+        if is_main_process:
+            print("Wrapping model with FSDP")
+        if config.training.wrapping_strategy:
+            auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1_000_000)
+        else: 
+            auto_wrap_policy = None
+
+        strategy_name = config.training.fsdp_sharding_strategy
+        precision = get_fsdp_precision(config)
+        model = FSDP(model,
+                    auto_wrap_policy=auto_wrap_policy,
+                    sharding_strategy=getattr(ShardingStrategy, strategy_name),
+                    mixed_precision=precision,
+                    limit_all_gathers=True,
+                    device_id=torch.cuda.current_device(),
+                    use_orig_params=True #https://github.com/huggingface/transformers/issues/23341#issuecomment-1550314971
+                    )
+
+    trainer = get_trainer(config, model, tokenizer, noise_schedule, loss_fn, dtype)
+    trainer = trainer.to(device)
+
+    optimizer = get_optimizer(config, trainer)
 
     trainable_params = get_nbr_trainable_params(trainer)
 
     flops_per_batch = calculate_flops_per_batch(config, model, len(tokenizer), non_emb_params, method="hoffmann")
 
+    # Recommended to apply compiler to inner modules passed to the FSDP/DDP wrapper:
+    # https://docs.pytorch.org/docs/main/torch.compiler_troubleshooting.html#where-to-apply-torch-compile
     if config.training.compile_model:
-        if isinstance(trainer.model, FSDP): #avoid compiling when using FSDP
-            opt_trainer = trainer
-        else:
-            opt_trainer = torch.compile(trainer)
+        opt_trainer = torch.compile(trainer)
     else:
         opt_trainer = trainer
 
